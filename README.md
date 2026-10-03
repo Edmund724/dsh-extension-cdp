@@ -66,7 +66,15 @@ Edge 重启后 → 再点一次。** 其余时间不会再弹。
 
 ## 为什么默认屏蔽 `trigger_extension_action`
 
-实测：attach 模式下调用它会把 Edge **整个打崩**（`Target closed` + Crashpad dmp）。
+实测：attach 模式下调用它会把 Edge **整个打崩**。复核记录（Edge `Edg/154.0.4258.48`，
+在一个一次性 `--user-data-dir` + `--remote-debugging-port` 的实例上跑，不碰日常浏览器）：
+
+```
+Error: Protocol error (Extensions.triggerAction): Target closed
+→ 之后 127.0.0.1:<port> 拒绝连接、该实例 0 个进程存活
+→ Crashpad\reports\*.dmp = 10,436,899 B (≈10 MB)
+```
+
 所以默认在 `tools/list` 里把它删掉，并拦截对它的 `tools/call`（本地回 `-32601`），
 避免模型顺手一调用就把你的浏览器弄没。需要时把 `DSH_CDP_BLOCKED_TOOLS` 设成空串即可恢复。
 
