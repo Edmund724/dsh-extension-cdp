@@ -3,6 +3,8 @@
 把 DSH 的 Chrome DevTools MCP 客户端 attach 到你**正在跑的日常 Edge**（不是另开一个浏览器），
 这样扩展调试类工具（`list_extensions`、扩展 Service Worker 的 `evaluate_script` 等）能像一行插件一样随开随关。
 
+它的重心是 Chromium 系浏览器的**扩展开发**：扩展装在日常浏览器里，所以默认直出的就是那几个扩展调试工具。不过这只是默认值，不是能力边界 —— CDP 能做的事这里都能做（唯一例外是默认屏蔽掉的 `trigger_extension_action`，原因见下文），没直出的工具从 `cdp_call` 元工具按需取。广义上它仍然是一个 browser-use 插件，只是重心放在扩展上。
+
 它是一个**配置型 bundle**：`cordis.patch.yml` 插入一行 `@deepseek-ai/dsh-mcp-client`，
 `connect.mjs` 作为包装脚本负责"发现端点 → 校验 → 透明转发"（它做的完整几件事见下一节）。
 
