@@ -422,7 +422,7 @@ base::WriteFile(output_directory.Append(kDevToolsActivePortFileName), port_targe
 
 真实链路：日常 Edge（`edge://inspect` 开关 + 9222）← `--wsEndpoint ws://127.0.0.1:9222/devtools/browser/<guid>` ← `chrome-devtools-mcp 1.10.1 --categoryExtensions`。
 
-**2026-10-03 复核：下面这一版把自己的扩展和第三方 SW 混在了同一张表里。** `evaluate_script` 那行进的是 `sw-1`，而 `sw-1` 属于第三方扩展（直接读它的 manifest：`chrome.runtime.getManifest().name` = `Kimi`，v2.0.15）；`reload_extension` 那行既没记 ID 也没记路径，所以「重载自己的扩展」当时并没有证据。下表是同一天重做的实测，`--workspace D:\src\BiliScript\dist`（BiliScript 的 unpacked 构建目录）：
+**2026-10-03 复核：下面这一版把自己的扩展和第三方 SW 混在了同一张表里。** `evaluate_script` 那行进的是 `sw-1`，而 `sw-1` 属于第三方扩展（直接读它的 manifest：`chrome.runtime.getManifest().name` = `Kimi`，v2.0.15）；`reload_extension` 那行既没记 ID 也没记路径，所以「重载自己的扩展」当时并没有证据。下表是同一天重做的实测，`--workspace <BiliScript 的 unpacked 构建目录>`（该目录的本机路径不入库，理由见下）：
 
 | 调用 | 结果 |
 |---|---|
@@ -434,7 +434,7 @@ base::WriteFile(output_directory.Append(kDevToolsActivePortFileName), port_targe
 
 **重载打的到底是不是自己的扩展，可以离线算出来。** `list_extensions` 不输出路径，但 unpacked 扩展的 ID 就是**扩展目录路径的 SHA256 前 16 字节**：`GenerateIdForPath` 先规范化路径（Windows 上只把盘符转成大写），再对 `value()` 的字节（即 UTF-16LE）做 SHA256，取前 16 字节写成十六进制，把每一位 `0-f` 映射成 `a-p`。[id_util.cc](https://github.com/chromium/chromium/blob/main/components/crx_file/id_util.cc)
 
-对本机路径算一遍 `SHA256(UTF-16LE("D:\src\BiliScript\dist"))`，结果与 `list_extensions` 报出的 ID、SW 里读到的 `chrome.runtime.id`、SW URL 里的 ID 都相同；而 `entry/background.js` 正是该目录 `manifest.json` 里 `background.service_worker` 的值。所以那次 `reload_extension` 打的确实是 `D:\src\BiliScript\dist` 这个 unpacked 目录，**不可能是商店安装的副本**（商店 ID 派生自签名公钥，与本地路径无关）。
+对那个本机构建目录的路径算一遍 `SHA256(UTF-16LE(<该目录路径>))`，结果与 `list_extensions` 报出的 ID、SW 里读到的 `chrome.runtime.id`、SW URL 里的 ID 都相同；而 `entry/background.js` 正是该目录 `manifest.json` 里 `background.service_worker` 的值。所以那次 `reload_extension` 打的确实是那个 unpacked 目录，**不可能是商店安装的副本**（商店 ID 派生自签名公钥，与本地路径无关）。路径本身不写进来：它是 ID 的输入，写出来等于把上面打码过的 ID 又公开一遍；要复算的话换成本机自己的扩展目录即可。
 
 同一次实测还多出两条：
 

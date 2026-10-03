@@ -11,7 +11,7 @@ test('buildServerArgs: 顺序固定，extraArgs 原样追加', () => {
     buildServerArgs({
       entry: 'C:/pkg/build/src/bin/chrome-devtools-mcp.js',
       wsUrl: 'ws://127.0.0.1:9222/devtools/browser/x',
-      extraArgs: ['--no-usage-statistics', '--categoryExtensions', '--workspace', 'D:/src/BiliScript/dist'],
+      extraArgs: ['--no-usage-statistics', '--categoryExtensions', '--workspace', 'D:/ext/dist'],
     }),
     [
       'C:/pkg/build/src/bin/chrome-devtools-mcp.js',
@@ -20,7 +20,7 @@ test('buildServerArgs: 顺序固定，extraArgs 原样追加', () => {
       '--no-usage-statistics',
       '--categoryExtensions',
       '--workspace',
-      'D:/src/BiliScript/dist',
+      'D:/ext/dist',
     ],
   );
 });

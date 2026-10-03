@@ -157,7 +157,17 @@ test('cordis.patch.yml: 解析出的行与 config 正确', () => {
     'args[0] 必须用 baseUrl 相对解析本包入口，不要写死绝对路径',
   );
   assert.ok(row.config.args.includes('--categoryExtensions'));
-  assert.ok(row.config.args.includes('--workspace'));
+  // --workspace 只影响取路径的工具（install_extension / upload_file / trace 输出），
+  // 热重载用不上它，带默认值就等于把一个机器上的构建目录写进公开仓库。
+  assert.equal(
+    row.config.args.includes('--workspace'),
+    false,
+    '不要默认带 --workspace：它会连带写死某台机器的构建目录',
+  );
+  for (const arg of row.config.args) {
+    if (typeof arg !== 'string') continue;
+    assert.equal(/^[A-Za-z]:[\\/]|^\\\\|^\//.test(arg), false, `args 里不许出现绝对路径：${arg}`);
+  }
   // MCP 客户端会把子进程环境里的 DSH_* 名字全部清洗掉，所以 Host 侧的 profile 目录
   // 必须靠显式 env 转发（env 在清洗之后合并）；少了这一条，真实路径上就会
   // "找不到 chrome-devtools-mcp 入口" 然后无限退避重试。

@@ -21,16 +21,13 @@
           - !!js process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('dsh-extension-cdp/connect.mjs')
           - '--no-usage-statistics'
           - '--categoryExtensions'
-          # --workspace only gates tools that take a filesystem path
-          # (install_extension, upload_file, trace/snapshot output paths). It is
-          # NOT needed to reload, list or evaluate: measured 2026-10-03 with the
-          # flag absent, reload_extension succeeded while install_extension on the
-          # very same folder returned "not within any of the configured workspace
-          # roots". So this pair is for installing, not for hot-reloading.
-          # Default root is the OS temp dir; point this at the built extension
-          # folder; repeat the flag for more roots.
-          - '--workspace'
-          - 'D:\src\BiliScript\dist'
+          # No --workspace here on purpose. It only gates tools that take a
+          # filesystem path (install_extension, upload_file, trace/snapshot output
+          # paths); reload, list and evaluate do not need it -- with the flag
+          # absent, reload_extension still succeeds. Shipping one would have to
+          # name one machine's build folder, so add your own if you want to
+          # install extensions: ['--workspace', '<unpacked extension folder>'].
+          # (Default root is the OS temp dir; repeat the flag for more roots.)
         # The endpoint is expected to be absent while the Edge switch is off:
         # do not fail activation, let the reconnect policy below keep retrying
         # so flipping the switch later connects on its own.
