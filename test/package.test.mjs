@@ -197,6 +197,7 @@ test('仓库必需文件齐备', () => {
     'locale/en.json',
     'icon.svg',
     'README.md',
+    'LICENSE',
     '.gitignore',
     'tools/mcp-probe.mjs',
     'test/endpoint.test.mjs',
