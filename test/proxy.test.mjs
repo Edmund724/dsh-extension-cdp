@@ -85,7 +85,7 @@ function waitFor(predicate, { timeoutMs = 15000, intervalMs = 20 } = {}) {
 
 // 起一套沙箱：记录字节的假端口 + 假 MCP server + 临时 DevToolsActivePort。
 async function sandbox() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-cdp-proxy-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-extension-cdp-proxy-'));
   const fakeServer = path.join(dir, 'fake-server.mjs');
   const argvFile = path.join(dir, 'argv.json');
   fs.writeFileSync(fakeServer, FAKE_SERVER);
@@ -217,7 +217,7 @@ test('connect.mjs: 只探端口就转发，且屏蔽工具不外泄', async () =
 });
 
 test('connect.mjs: 端口不在听时直接退出，不建连接也不弹窗', async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-cdp-stale-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-extension-cdp-stale-'));
   const portFile = path.join(dir, 'DevToolsActivePort');
   // 占一个端口再立刻放掉，确保没人监听。
   const probe = net.createServer();

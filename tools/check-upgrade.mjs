@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // 升级 chrome-devtools-mcp 之前的预检：读候选产物的分类互斥表，回答"本行还能不能起来"。
 //
-// 为什么需要它：`--categoryExtensions` + `--wsEndpoint` 是本行（dsh-cdp）的核心组合。
+// 为什么需要它：`--categoryExtensions` + `--wsEndpoint` 是本行（dsh-extension-cdp）的核心组合。
 // 上游 main 已经给 EXTENSIONS 分类加了互斥表，一旦发出来，这一行会启动即失败 —— 而
 // "发布版里到底有没有"必须看**产物**，不能看源码分支（1.10.1 就是源码有、产物没有）。
 //
@@ -29,7 +29,7 @@ export const EXIT = { safe: 0, unsafe: 1, undecided: 2, error: 3 };
 const VERSION_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 
 const USAGE = [
-  'check-upgrade: chrome-devtools-mcp 升级前预检（dsh-cdp）',
+  'check-upgrade: chrome-devtools-mcp 升级前预检（dsh-extension-cdp）',
   '',
   '用法：',
   '  node tools/check-upgrade.mjs                      检查当前已安装的那份',
@@ -185,7 +185,7 @@ function report({ target, pkgDir, out, exists, readFile, listFiles }) {
   const conflictsText =
     result.conflicts === null ? '（没读到分类定义）' : result.conflicts.length === 0 ? '无' : result.conflicts.join(', ');
 
-  out('dsh-cdp 升级预检');
+  out('dsh-extension-cdp 升级预检');
   out(`检查对象：${target}`);
   out(`包目录：${pkgDir}`);
   out(`版本：${version ?? '读不出来'}`);
@@ -231,7 +231,7 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
   }
 
   if (parsed.mode === 'version') {
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-cdp-upgrade-check-'));
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-extension-cdp-upgrade-check-'));
     try {
       await pack(parsed.version, tmp);
       const pkgDir = path.join(tmp, 'package');

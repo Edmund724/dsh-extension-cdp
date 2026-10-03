@@ -96,7 +96,7 @@ test('findMcpEntry: DSH_CDP_MCP_ENTRY 指向不存在的文件时报错', () => 
 });
 
 test('findMcpEntry: searchDirs 命中 node_modules 下的包', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-cdp-entry-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-extension-cdp-entry-'));
   try {
     const pkgDir = path.join(root, 'node_modules', 'chrome-devtools-mcp');
     fs.mkdirSync(path.join(pkgDir, 'build', 'src', 'bin'), { recursive: true });
@@ -116,7 +116,7 @@ test('findMcpEntry: searchDirs 命中 node_modules 下的包', () => {
 });
 
 test('findMcpEntry: 从 DSH_PROFILE_DIR 命中', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-cdp-profile-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-extension-cdp-profile-'));
   try {
     const pkgDir = path.join(root, 'node_modules', 'chrome-devtools-mcp');
     fs.mkdirSync(pkgDir, { recursive: true });
@@ -145,7 +145,7 @@ test('findMcpEntry: 找不到返回 { error }，不抛异常', () => {
 });
 
 test('dshProfileDirs: 列出 <root>/profiles 下每个 profile 目录', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-cdp-home-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-extension-cdp-home-'));
   try {
     fs.mkdirSync(path.join(root, 'profiles', 'desktop'), { recursive: true });
     fs.mkdirSync(path.join(root, 'profiles', 'other'), { recursive: true });
@@ -160,7 +160,7 @@ test('dshProfileDirs: 列出 <root>/profiles 下每个 profile 目录', () => {
 });
 
 test('dshProfileDirs: 没有 profiles 目录时返回空数组，不抛错', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-cdp-home-empty-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-extension-cdp-home-empty-'));
   try {
     assert.deepEqual(dshProfileDirs({ dshHome: root }), []);
     assert.deepEqual(dshProfileDirs({ dshHome: path.join(root, 'nope') }), []);
@@ -196,7 +196,7 @@ test('dshProfileDirs: DSH_HOME 覆盖默认，显式 dshHome 覆盖 DSH_HOME', (
 
 test('findMcpEntry: DSH_* 被清洗掉后靠 profile 目录仍能找到入口', () => {
   // 真实运行路径：MCP 客户端把 DSH_PROFILE_DIR 洗掉了，只有 os.homedir() 可信。
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-cdp-realhome-'));
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-extension-cdp-realhome-'));
   try {
     const pkgDir = path.join(home, '.dsh', 'profiles', 'desktop', 'node_modules', 'chrome-devtools-mcp');
     fs.mkdirSync(path.join(pkgDir, 'build', 'src', 'bin'), { recursive: true });

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// dsh-cdp 包装脚本：把 DSH 的 chrome-devtools-mcp 客户端 attach 到你正在跑的 Edge。
+// dsh-extension-cdp 包装脚本：把 DSH 的 chrome-devtools-mcp 客户端 attach 到你正在跑的 Edge。
 //
 // 契约：stdout 只允许出现 MCP 帧（换行分隔的 JSON-RPC），所有诊断一律走 stderr。
 //
@@ -38,12 +38,12 @@ const DEFAULT_USER_DATA_DIR = () =>
   path.join(process.env.LOCALAPPDATA ?? path.join(os.homedir(), 'AppData', 'Local'), 'Microsoft', 'Edge', 'User Data');
 
 function die(message) {
-  process.stderr.write(`[dsh-cdp] ${message}\n`);
+  process.stderr.write(`[dsh-extension-cdp] ${message}\n`);
   process.exit(1);
 }
 
 function log(message) {
-  process.stderr.write(`[dsh-cdp] ${message}\n`);
+  process.stderr.write(`[dsh-extension-cdp] ${message}\n`);
 }
 
 function readConfig(env = process.env) {

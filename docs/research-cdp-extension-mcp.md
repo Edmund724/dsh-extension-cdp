@@ -1,7 +1,7 @@
 # 用 CDP 调试浏览器扩展：MCP 工具横向调研
 
 调研对象：把 CDP/扩展调试能力接进 agent 的现有 MCP 工具与同类 DSH 插件。
-对比基线：`D:\DSH\dsh-cdp`（DSH 插件，把 `chrome-devtools-mcp` attach 到用户正在跑的日常 Edge；只做 TCP 探活 + 透明转发，不自己建 CDP 连接；默认屏蔽 `trigger_extension_action`）。
+对比基线：`D:\DSH\dsh-extension-cdp`（DSH 插件，把 `chrome-devtools-mcp` attach 到用户正在跑的日常 Edge；只做 TCP 探活 + 透明转发，不自己建 CDP 连接；默认屏蔽 `trigger_extension_action`）。
 调研日期：2026-10 初。所有结论尽量追溯到官方源码 / 官方文档 / 官方 issue，未证实的明确标注。
 
 ## TL;DR

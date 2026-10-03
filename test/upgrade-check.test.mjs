@@ -111,7 +111,7 @@ function writePackageDir(root, { version = '9.9.9', categoryOptions = CATEGORY_O
 }
 
 function tempPackageDir(options) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-cdp-upgrade-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-extension-cdp-upgrade-'));
   return writePackageDir(root, options);
 }
 

@@ -86,7 +86,7 @@ test('needsWindowsShell: npx 只有 sh 脚本时也要走 shell（真实现场�
 
 test('quoteForCmd: 简单参数原样，危险字符加引号', () => {
   assert.equal(quoteForCmd('--no-usage-statistics'), '--no-usage-statistics');
-  assert.equal(quoteForCmd('C:\\DSH\\dsh-cdp\\connect.mjs'), 'C:\\DSH\\dsh-cdp\\connect.mjs');
+  assert.equal(quoteForCmd('C:\\DSH\\dsh-extension-cdp\\connect.mjs'), 'C:\\DSH\\dsh-extension-cdp\\connect.mjs');
   assert.equal(quoteForCmd('D:\\src\\My Project\\dist'), '"D:\\src\\My Project\\dist"');
   assert.equal(quoteForCmd('a&b'), '"a&b"');
   assert.equal(quoteForCmd('say "hi"'), '"say ""hi"""');

@@ -126,7 +126,7 @@ test('filterClientLine: 屏蔽工具的 tools/call 本地回 error 且不转发'
   assert.equal(reply.id, 7);
   assert.equal(reply.error.code, -32601);
   assert.match(reply.error.message, /trigger_extension_action/);
-  assert.match(reply.error.message, /dsh-cdp/);
+  assert.match(reply.error.message, /dsh-extension-cdp/);
 });
 
 test('filterClientLine: 其他 tools/call、非 JSON、非请求一律转发', () => {

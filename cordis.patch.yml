@@ -1,11 +1,11 @@
-# `dsh-cdp` — attach the DSH Chrome DevTools MCP client to the Edge the user is
+# `dsh-extension-cdp` — attach the DSH Chrome DevTools MCP client to the Edge the user is
 # already running (daily profile, remote debugging enabled from edge://inspect).
 # Toggle this row in Settings -> Plugins, or with `plugin_manager set_plugin`.
 # Why a wrapper: the DevToolsActivePort handshake path (`<user data>/DevToolsActivePort`)
 # rewrites its GUID every time the switch is flipped, so the endpoint must be
 # re-read on every spawn (lib/endpoint.mjs, connect.mjs).
 - insert:
-    - id: dsh-cdp
+    - id: dsh-extension-cdp
       name: '@deepseek-ai/dsh-mcp-client'
       config:
         transport: stdio
@@ -13,7 +13,7 @@
         serverName: chrome-devtools-mcp
         command: !!js process.execPath
         args:
-          - 'D:\DSH\dsh-cdp\connect.mjs'
+          - 'D:\DSH\dsh-extension-cdp\connect.mjs'
           - '--no-usage-statistics'
           - '--categoryExtensions'
           # install_extension only accepts paths under a --workspace root

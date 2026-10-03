@@ -120,7 +120,7 @@ function walk(dir, base = dir, out = []) {
 const repoFiles = walk(root);
 
 test('package.json: 基本字段与 dsh.bundle.patch', () => {
-  assert.equal(pkg.name, 'dsh-cdp');
+  assert.equal(pkg.name, 'dsh-extension-cdp');
   assert.equal(pkg.private, true);
   assert.equal(pkg.type, 'module');
   assert.equal(pkg.scripts.test, 'node --test "test/*.test.mjs"');
@@ -136,7 +136,7 @@ test('cordis.patch.yml: 解析出的行与 config 正确', () => {
   const op = Array.isArray(doc) ? doc[0] : doc;
   assert.ok(Array.isArray(op.insert), 'patch 顶层要有 insert 序列');
   const row = op.insert[0];
-  assert.equal(row.id, 'dsh-cdp');
+  assert.equal(row.id, 'dsh-extension-cdp');
   assert.equal(row.name, '@deepseek-ai/dsh-mcp-client');
   assert.equal(row.config.transport, 'stdio');
   // 与 DSH 官方 browser-use bundle 的 serverName 一致：工具名统一成 mcp__chrome-devtools-mcp__*。
@@ -148,7 +148,7 @@ test('cordis.patch.yml: 解析出的行与 config 正确', () => {
   assert.equal(row.config.toolCallTimeoutMs, 300000);
   assert.equal(row.config.reconnect.maxAttempts, 1000);
   assert.equal(row.config.reconnect.maxDelayMs, 30000);
-  assert.equal(row.config.args[0], 'D:\\DSH\\dsh-cdp\\connect.mjs');
+  assert.equal(row.config.args[0], 'D:\\DSH\\dsh-extension-cdp\\connect.mjs');
   assert.ok(row.config.args.includes('--categoryExtensions'));
   assert.ok(row.config.args.includes('--workspace'));
   // MCP 客户端会把子进程环境里的 DSH_* 名字全部清洗掉，所以 Host 侧的 profile 目录

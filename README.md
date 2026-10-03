@@ -1,4 +1,4 @@
-# dsh-cdp
+# dsh-extension-cdp
 
 把 DSH 的 Chrome DevTools MCP 客户端 attach 到你**正在跑的日常 Edge**（不是另开一个浏览器），
 这样扩展调试类工具（`list_extensions`、扩展 Service Worker 的 `evaluate_script` 等）能像一行插件一样随开随关。
@@ -30,12 +30,12 @@
 
 ## 怎么开关
 
-- GUI：Settings → Plugins，打开/关闭 `dsh-cdp` 这一行。
+- GUI：Settings → Plugins，打开/关闭 `dsh-extension-cdp` 这一行。
 - CLI / `plugin_manager`：要按**那个行的地址**来，不是行 id ——
-  `action: set_plugin`、`target: include:dsh-cdp`、`enabled: true|false`
-  （`target: dsh-cdp` 会回 `unknown-plugin`，那是 patch id，不是可寻址的 entryId）。
+  `action: set_plugin`、`target: include:dsh-extension-cdp`、`enabled: true|false`
+  （`target: dsh-extension-cdp` 会回 `unknown-plugin`，那是 patch id，不是可寻址的 entryId）。
 
-实测：`set_plugin` 会把 `- id: dsh-cdp` + `disabled:` 的覆盖行写进 profile 的
+实测：`set_plugin` 会把 `- id: dsh-extension-cdp` + `disabled:` 的覆盖行写进 profile 的
 `cordis.patch.yml`（DSH 自己的机制，不用手写）。
 
 端点缺席时不会让激活失败（`failOnStartupError: false` + `reconnect`），所以可以先把这一行打开，
@@ -135,7 +135,7 @@ GUI 里那一行显示 `fiberPhase: active` **不能**作为依据 —— 端点
 但 `chrome-devtools-mcp` 是**惰性连接**的：浏览器上下文以 thunk 传给工具处理器
 （`new ToolHandler(tool, args, () => this.#getContext(), mutex)`，见 `index.js`），
 `puppeteer.connect()` 只在**第一笔 `tools/call`** 时才执行。所以打开插件本身不建连接、
-不弹窗；弹窗出现在你第一次真正要用它的那一刻。实测（重新启用 `dsh-cdp` 之后）：
+不弹窗；弹窗出现在你第一次真正要用它的那一刻。实测（重新启用 `dsh-extension-cdp` 之后）：
 
 | 事件 | 到 9222 的连接 | 弹窗 |
 |---|---|---|
@@ -185,7 +185,7 @@ Error: Protocol error (Extensions.triggerAction): Target closed
 装 bundle 之前先手工验一遍（`--` 之前是 MCP server 命令，之后是要发的 `tools/call` JSON）：
 
 ```powershell
-node tools\mcp-probe.mjs node D:\DSH\dsh-cdp\connect.mjs --no-usage-statistics --categoryExtensions -- `
+node tools\mcp-probe.mjs node D:\DSH\dsh-extension-cdp\connect.mjs --no-usage-statistics --categoryExtensions -- `
   '{\"name\":\"list_extensions\",\"arguments\":{}}' `
   '{\"name\":\"list_pages\",\"arguments\":{}}'
 ```
