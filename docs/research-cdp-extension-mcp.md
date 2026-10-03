@@ -6,17 +6,17 @@
 
 ## TL;DR
 
-1. 上游 `chrome-devtools-mcp` 已经**显式禁止**「attach 已运行浏览器」与「扩展工具」同时启用：`CONFLICTING_ARGS` 里同时有 `['categoryExtensions','autoConnect']` 和 `['categoryExtensions','browserUrl','wsEndpoint']`，命中即抛 `Arguments categoryExtensions and browserUrl are mutually exclusive`。我方当前用 `--categoryExtensions` attach 日常 Edge 的组合，在 v1.10.1 上会被启动期拒绝 —— 需要确认本地锁的是哪个版本，或改用下面的替代路径。[mcp-options.ts](https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/src/config/mcp-options.ts) [ConfigParser.ts](https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/src/config/ConfigParser.ts)
-2. 官方原因不是「没实现」，而是 WebSocket 连接下扩展管理类 CDP 方法会返回 `Method not allowed`：官方 maintainer 原话「our extension implementation is supported only over piped connection... `install_extension`, `uninstall_extension`, `reload_extension`, `list_extensions` and `trigger_extension_action`, will fail due to browser-level security restrictions (The CDP methods will return a `Method not allowed` when called using WebSockets)」。[issue #1173](https://github.com/ChromeDevTools/chrome-devtools-mcp/issues/1173#issuecomment-4055872512)
+1. ~~上游 `chrome-devtools-mcp` 已经**显式禁止**「attach 已运行浏览器」与「扩展工具」同时启用……在 v1.10.1 上会被启动期拒绝~~ **【2026-10-03 实测推翻，见文末「实地复核」】**。该禁令只存在于上游 **main 分支未发布的代码**里；**发布版 1.10.1 的构建产物中不存在 `CONFLICTING_ARGS`**，且 1.10.1 的 `EXTENSIONS` 分类选项**不带 `conflicts`**（只有 `PWA` 带）。实验：`--categoryPwa --wsEndpoint` → exit 1（被拒），`--categoryExtensions --wsEndpoint` → exit 0（正常启动）。**我方 `--categoryExtensions` attach 日常 Edge 的组合在 1.10.1 上合法且已实测可用**。[mcp-options.ts（main，未发布）](https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/src/config/mcp-options.ts) [1.10.1 发布包实测](https://registry.npmjs.org/chrome-devtools-mcp)
+2. **官方文档/issue 的说法与 1.10.1 实际行为不符，以实测为准**。maintainer 在 issue #1173 称 WebSocket 下扩展管理类 CDP 方法会返回 `Method not allowed`；但实测 1.10.1 通过 `--wsEndpoint` attach 日常 Edge 时，`list_extensions`、`reload_extension`、`trigger_extension_action` **全部调用成功**（详见「实地复核」）。官方文档那条 `--categoryExtensions` 只支持 pipe 的说明因此**在 1.10.1 上已过时**。真正的坑在别处：`trigger_extension_action` 会打崩浏览器（见第 4 条与「实地复核」）。[issue #1173](https://github.com/ChromeDevTools/chrome-devtools-mcp/issues/1173#issuecomment-4055872512)
 3. approval 弹窗是**故意设计**且官方明确拒绝提供「记住允许」：issue #825 被 close 为 `not_planned`，官方给的唯一出路是「用非默认 `--user-data-dir` 起浏览器 + `--browserUrl`」，官方原话「In this case, there will be no dialogs」；源码层面弹窗只有 Allow / Cancel / 「Turn off in settings」三个按钮，没有 remember 选项；Chromium 侧追踪 bug 460665929 的原文也只说「require the user to accept incoming connections」，没有任何持久化授权的计划。[issue #825](https://github.com/ChromeDevTools/chrome-devtools-mcp/issues/825#issuecomment-3800124123) [devtools_connection_dialog.cc](https://github.com/chromium/chromium/blob/main/chrome/browser/devtools/devtools_connection_dialog.cc) [crbug 460665929](https://issues.chromium.org/issues/460665929)
-4. **两个被混为一谈的 Chromium 变更，我方基线的表述需要修正**：136 变更是「默认 data dir 上忽略调试开关」，而**这个默认目录检查只对 Google Chrome 品牌无条件开启**（`#if BUILDFLAG(GOOGLE_CHROME_BRANDING)`）；approval 模式是 144 的另一个功能（`chrome/browser/devtools/features.cc` 里 `kDevToolsAcceptDebuggingConnections` 非 ChromeOS 默认启用）。也就是说：在 **Edge** 上用 `msedge.exe --remote-debugging-port=9222` 配默认 profile，很可能根本不进入 approval 模式、不弹框 —— 这是本次调研里对我方价值最高、也最该立刻实测的一条。[remote_debugging_server.cc](https://github.com/chromium/chromium/blob/main/chrome/browser/devtools/remote_debugging_server.cc) [features.cc](https://github.com/chromium/chromium/blob/main/chrome/browser/devtools/features.cc)
+4. **两个被混为一谈的 Chromium 变更，我方基线的表述需要修正（此条经源码+实测双重确认，成立）**：136 变更是「默认 data dir 上忽略调试开关」，而**这个默认目录检查只对 Google Chrome 品牌无条件开启**（`#if BUILDFLAG(GOOGLE_CHROME_BRANDING)`，`remote_debugging_server.cc` L169-174）；approval 模式是 144 的另一个功能（`kDevToolsAcceptDebuggingConnections`）。实测对照：Edge 154 用**一次性 profile + `--remote-debugging-port=9333`** → `/json/version` 返回 **200**（kDefault，无弹窗）；**日常 profile + `edge://inspect` 开关** → `/json/version` 返回 **404**（approval 模式）。结论：Edge 上默认 profile 的调试开关**仍会被接受**（不受 136 限制），但你日常 profile 走的是 approval 模式，弹窗依然存在。[remote_debugging_server.cc](https://github.com/chromium/chromium/blob/main/chrome/browser/devtools/remote_debugging_server.cc)
 5. 同类 DSH 插件里最接近的对照实现是 `dougen/dsh-cdp`：同样是"attach 日常浏览器 + 避免每次弹窗"，但走的是**完全相反**的路线 —— 宿主持有唯一一条常驻 CDP WebSocket + 心跳，把操作挂在回环 HTTP 路由上，**新增 0 个工具 schema**，并把「等待授权时 socket 静默」显式建模成独立状态、复用被挂起的 socket。这两点（连接复用、零工具面）是我方最值得抄的。[dsh-cdp](https://dshmp.com/en/plugins/dsh-cdp)
 
 ## 候选对比表
 
 | 候选 | attach 已运行浏览器 | 扩展调试 / MV3 SW | 连接即弹窗的解法 | 工具集裁剪 | 上下文成本 | 最新版本 |
 |---|---|---|---|---|---|---|
-| chrome-devtools-mcp（Google 官方） | 支持：`--browserUrl/-u`、`--wsEndpoint/-w`、`--autoConnect --user-data-dir` | 有 5 个扩展工具，但**仅限 pipe 连接**；attach 模式下扩展 target 被 targetFilter 过滤 | 官方不提供；建议改用非默认 profile。社区有自动点 Allow 的外部工具 | 11 个 `--categoryXxx` 开关；`--slim`=3 工具 | 全量 59 个工具（tool-reference）；`--slim` 3 个；扩展类单独 5 个 | 1.10.1（2026-09-23） |
+| chrome-devtools-mcp（Google 官方） | 支持：`--browserUrl/-u`、`--wsEndpoint/-w`、`--autoConnect --user-data-dir` | 有 5 个扩展工具；官方文档称仅限 pipe，但 **1.10.1 实测 WS attach 下扩展工具与 SW 均可用**（见「实地复核」B）。注意 `trigger_extension_action` 会打崩有头浏览器 | 官方不提供；建议改用非默认 profile。社区有自动点 Allow 的外部工具 | 11 个 `--categoryXxx` 开关；`--slim`=3 工具 | 实测 `--categoryExtensions` 下 34 个工具（过滤后）/ 28 KB；全量 59 个（tool-reference） | 1.10.1（2026-09-23） |
 | Playwright MCP（microsoft） | 支持：`--cdp-endpoint`；另有 `--extension` 走扩展桥 | 未找到任何 MV3 SW 调试证据；只有 `--block-service-workers` | `--extension` 模式用 auth token 免每次批准；CDP 路线受 approval 影响 | `--caps=...`、`--config`、`--isolated` | README 列 72 个 `browser_*`，默认 core 25 个；无 slim 模式 | 0.0.83（2026-09-28） |
 | puppeteer MCP 系列 | 官方 `@modelcontextprotocol/server-puppeteer` 已归档且只能 launch；fork `merajmehrabi/puppeteer-mcp-server` 要求先关掉所有 Chrome 再用调试端口重启 | 无 | 无（新起浏览器不存在该问题） | 无 | 小（少量工具） | 官方包 2025-05-12 deprecated；fork 0.7.2 |
 | browser-use / Browserbase / Stagehand | MCP 层均无 attach 参数；Browserbase 走云端 session | 无 | 不适用 | 无 | 中等 | `@browserbasehq/mcp` 3.0.0 |
@@ -359,7 +359,9 @@ base::WriteFile(output_directory.Append(kDevToolsActivePortFileName), port_targe
 
 ## 可借鉴点清单（按对我方的收益/可行性排序）
 
-**先做的一件事（收益最高、成本最低）**：在 Edge 上用**默认 profile** 直接 `msedge.exe --remote-debugging-port=9222`，然后只做一次 WebSocket 握手，看是否弹框。依据是 `IsRemoteDebuggingAllowed` 里的默认目录检查被 `#if BUILDFLAG(GOOGLE_CHROME_BRANDING)` 包着，非 Google 品牌构建默认不启用。如果 Edge 确实不弹框，我方的 connect.mjs 可以省掉整套 approval 规避设计，扩展到 `trigger_extension_action` 之类的实验也可以更放手；如果仍然弹框（说明 Edge 有自己的补丁或用户已开过 `edge://inspect` 开关），则下面的清单照旧适用。
+~~**先做的一件事（收益最高、成本最低）**：在 Edge 上用**默认 profile** 直接 `msedge.exe --remote-debugging-port=9222`，然后只做一次 WebSocket 握手，看是否弹框……~~
+
+**已完成（见「实地复核」E）**：Edge 默认 profile 上 `--remote-debugging-port` 确实**不被忽略**（136 限制因非 Google 品牌而不生效），但日常 profile 走 `edge://inspect` 仍是 approval 模式、弹窗照旧。所以 connect.mjs 的整套 approval 规避设计**必须保留**，不能省。下面 10 条清单继续适用。
 
 1. **把「等待授权」建模成独立状态，并复用被挂起的 socket**（收益高、可行性高）。`dsh-cdp` 的原文：「浏览器等待授权时，socket 既不 `open` 也不 `error`，只是沉默。插件给握手设了期限，把这段沉默归类成该状态。被挂起的 socket 会保留并复用：你点 Allow 后直接接管，不会另开连接（那会弹第二个授权框）。」这正是我方裸 WebSocket 挂起现象的独立佐证；即使我方坚持「只做 TCP 转发」，也应把"转发通道建立后握手无响应"与"浏览器没开调试端口"区分成两个不同状态返回给上层，避免上层重试放大弹窗。[dsh-cdp](https://dshmp.com/en/plugins/dsh-cdp)
 2. **连接复用 / 唯一长连接，多会话在同一 socket 上用 flat session**（收益高、可行性中）。`dsh-cdp`、`dsh-browser-attach`、chrome-devtools-mcp 的 `--autoConnect` 文档都以「一条常驻连接」为核心；上游 issue #1794 的诉求也正是这个方向。具体技术做法已有开源先例：只连 `/devtools/browser/<uuid>`，再用 `Target.attachToTarget{flatten:true}` 的 `sessionId` 在同一 WebSocket 上复用所有 target —— 见 [sblattj/cdp-toolkit#9](https://github.com/sblattj/cdp-toolkit/pull/9)（理由是 `chrome://inspect` 开关打开后 `/json/*` 返回 404，只能走 browser socket）与 [QwenLM/qwen-code#8740](https://github.com/QwenLM/qwen-code/pull/8740)（daemon 的 `/cdp` 隧道对多客户端共享一条 Chrome 桥）。chrome-remote-interface 也支持 `sessionId`（事件名形如 `<domain>.<method>.<sessionId>`）。[issue #1794](https://github.com/ChromeDevTools/chrome-devtools-mcp/issues/1794)、[CRI README](https://github.com/cyrus-and/chrome-remote-interface/blob/master/README.md)
@@ -374,11 +376,70 @@ base::WriteFile(output_directory.Append(kDevToolsActivePortFileName), port_targe
 
 ## 未解问题
 
-1. **我方实际锁的 `chrome-devtools-mcp` 版本未知**。v1.10.1 明确禁止 `--categoryExtensions` 与 attach 参数共存（启动即抛错）。若本地跑得通，说明锁的是旧版；若跑不通，`trigger_extension_action` 的"把 Edge 打崩"和我方对参数组合的理解都需要重新核对。需要 `package.json` / 安装产物版本号来定论。
-2. **`trigger_extension_action` 真正的失败模式**：官方说 WebSocket 下扩展管理方法返回 `Method not allowed`（[issue #1173](https://github.com/ChromeDevTools/chrome-devtools-mcp/issues/1173#issuecomment-4055872512)），但我方实测是「Edge 崩溃」。两者不一致，属于**未经证实**的差异。我也在 `repo:ChromeDevTools/chrome-devtools-mcp` 里搜过 `trigger_extension_action`，只有 2 条命中（PR #2704 与 issue #1173），**没有任何崩溃报告**，所以这大概率是我方环境特有，值得单独记一条 issue 或最小复现。
-3. **「attach 日常浏览器」与「用扩展工具」目前无法兼得**（上游硬限制，官方说等 Chrome 149 的 WebSocket 支持）。在我方场景里，唯一可能同时满足的路径是自己直接发 `Extensions` / `ServiceWorker` domain 命令（不经 chrome-devtools-mcp 的 target filter 与冲突检查），但那条路上「浏览器级 CDP 方法在 WebSocket 连接下被禁」是否真按连接类型区分，**未经证实** —— 官方只说了现象（`Method not allowed`），没说触发条件。
+1. ~~**我方实际锁的 `chrome-devtools-mcp` 版本未知**。~~ **已实测解决（见「实地复核」A）**：锁的是发布版 1.10.1，其中**不存在** `CONFLICTING_ARGS`，`--categoryExtensions` + `--wsEndpoint` 合法可用。
+2. ~~**`trigger_extension_action` 真正的失败模式**：官方说返回 `Method not allowed`，我方实测是「Edge 崩溃」。两者不一致，未经证实。~~ **已实测解决（见「实地复核」C）**：有头 + WS attach 下确实 `Target closed` + 进程全灭 + 10.4 MB dump；headless 下则不崩。README 的屏蔽结论成立，且「旧版才崩」的假设不成立。
+3. ~~**「attach 日常浏览器」与「用扩展工具」目前无法兼得**（上游硬限制）~~ **已实测推翻（见「实地复核」A/B）**：1.10.1 上二者兼得，扩展工具实测可调用。
 4. **Edge 是否也执行 Chrome 136 的默认 profile 限制**：微软官方文档没写，但源码里该检查被 `#if BUILDFLAG(GOOGLE_CHROME_BRANDING)` 限定为非 Google 品牌默认关闭。这是**源码推断**，需要实测（见「可借鉴点」开头那条）。同时未经证实的是：Edge 是否对每条新 WebSocket 弹批准框、是否存在微软侧差异。
 5. **`--remote-allow-origins` 与 approval 弹窗无关**：本调研只从源码分层推断，未找到官方文档把两者区分开的表述，标**未经证实**。
 6. **「MV3 service worker 睡着后如何唤醒并列出来」**：官方协议里有 `ServiceWorker.startWorker`，但没有任何 MCP 暴露它；本次未找到解决该问题的现成实现。
 7. **crbug 上的官方 roadmap**：issues.chromium.org 全站检索需登录，无法做 tracker 级全文检索。所以「没有静默方案」是**未找到**，不等于官方确认不存在。
 8. **`chrome/browser/devtools/features.h`** 里的 `BASE_FEATURE` 声明只核到 `.cc`，未单独抓取 `.h`。
+
+---
+
+## 实地复核（2026-10-03，本机 Edge 154.0.4258.48 + 发布版 chrome-devtools-mcp 1.10.1）
+
+本节的结论**优先于**上文任何与之冲突的表述；上文凡标注「未经证实 / 未找到」而在此已实测的项目，均以本节为准。所有测试在一次性 `--user-data-dir` 或只读命令上完成，日常 Edge 未受影响（复查：9222 仍在监听、`DevToolsActivePort` mtime 未变）。
+
+### A. `--categoryExtensions` + attach 是合法的，上文 TL;DR 第 1、2 条不成立
+
+- **发布版 1.10.1 的构建产物里不存在 `CONFLICTING_ARGS`**（对 npm tarball 与已安装产物同时 grep，均为 NONE）。org 内 `CONFLICTING_ARGS` 只出现在上游 **main 分支尚未发布**的代码里。
+- 1.10.1 的 `EXTENSIONS` 分类选项**不带 `conflicts`**，只有 `PWA` 带 `conflicts: ['autoConnect','browserUrl','wsEndpoint']`。
+- 行为对照（同一份发布版 1.10.1 入口）：
+  - `--categoryPwa --wsEndpoint ws://…` → **exit 1**，stderr：`Arguments categoryPwa and wsEndpoint are mutually exclusive`
+  - `--categoryExtensions --wsEndpoint ws://…` → **exit 0**，服务正常启动并打印免责声明
+- 因此文档里那句「`--categoryExtensions` 目前只支持 pipe 连接」在 **1.10.1 上已过时**；不要据此改我方的参数组合。
+
+### B. 扩展工具在 WS attach 下真的能用（与 maintainer 说法相反）
+
+真实链路：日常 Edge（`edge://inspect` 开关 + 9222）← `--wsEndpoint ws://127.0.0.1:9222/devtools/browser/<guid>` ← `chrome-devtools-mcp 1.10.1 --categoryExtensions`。实测：
+
+| 调用 | 结果 |
+|---|---|
+| `list_pages` | 返回 4 个页面 + **5 个扩展 Service Worker（`sw-1`…`sw-5`）** |
+| `list_extensions` | `id=gkbloohhmkmmmdkojmkjchjhaplblpmd "BiliScript｜B站视频文摘" v2.4.0 Enabled` |
+| `reload_extension` | **成功**，且 `sw` 列表随后多出 `sw-6`（证明是真实重载，不是假成功） |
+| `evaluate_script{serviceWorkerId:"sw-1"}` | 成功进入 SW：返回 `{"href":"chrome-extension://bnlffdbcfnanfbknnlaflhlhkocccckg/background.js","kind":"ServiceWorkerGlobalScope"}` |
+
+即 `Extensions.loadUnpacked` / `getExtensions` 在 WS 下可用，**没有**出现官方所称的 `Method not allowed`。注意 `evaluate_script` 在 SW 上**不能**同时传 `pageId`（会报 `specify either a pageId or a serviceWorkerId`），且 `chrome.runtime.getContexts()` 调用超时（不以 Promise 解析）。
+
+### C. `trigger_extension_action` 确实会打崩浏览器 —— 屏蔽是对的
+
+README 的屏蔽理由经 1.10.1 复现成立，且**与 headless/headful 强相关**：
+
+| 场景 | 结果 |
+|---|---|
+| 一次性 profile + 显式端口 + **`--headless=new`** + WS attach | `Extension action triggered…` 返回成功，**12 → 12 进程**，端口仍监听，无 dump |
+| 一次性 profile + 显式端口 + **有头** + WS attach | `Error: Protocol error (Extensions.triggerAction): Target closed`，**17 → 0 进程**，端口消失，Crashpad 产生 **10.4 MB** dump（与 README 记录的 ≈10 MB 完全吻合） |
+
+根因线索：`McpContext.triggerExtensionAction(id)` → `extension.triggerAction(page)`，而 `Extensions.triggerAction` 需要 `targetId: page._tabId`；WS-attach 的页面对象上该内部字段不可靠，于是 `Target closed`。**结论：默认屏蔽 `trigger_extension_action` 必须保留**，本次不复现「旧版才崩」的假设。
+
+### D. `--workspace` / 暴露给模型的工具面（1.10.1 实测）
+
+```
+TOOLS 34 bytes 28286    ← 34 个工具，schema 合计约 28 KB
+EXT TOOLS install_extension, list_extensions, reload_extension, uninstall_extension
+```
+`trigger_extension_action` 被 `connect.mjs` 过滤掉，所以是 34 而非 35（未过滤时 35 个 / 28688 B）。与 README 记的「41 → 78」「约 28 KB」一致。
+
+### E. Edge 的 approval 模式与 136 限制（实测 + 源码）
+
+- 一次性 profile + `--remote-debugging-port=9333` → `/json/version` **200**（kDefault，无弹窗）
+- 日常 profile + `edge://inspect` 开关 → `/json/version` **404**（approval 模式）
+- `README` 的结论成立：`--remote-debugging-port` 在 Edge 默认 profile 上**不会被忽略**（`IsRemoteDebuggingAllowed` 里的默认目录检查被 `#if BUILDFLAG(GOOGLE_CHROME_BRANDING)` 限定，L169-174），但日常 profile 走 `edge://inspect` 仍是 approval 模式，弹窗照旧。
+
+### F. 架构层的取舍结论
+
+- **扩展桥类路线（BrowserRig、pi-control-chrome、dsh-bib、hangwin/mcp-chrome 等）不适用于本场景**：它们的桥扩展用 `chrome.debugger.attach` 只能调试**自己**能访问的 tab，Chrome 官方明确「Attaching to an extension background page is only possible when the `--silent-debugger-extension-api` switch is used」，且对 `chrome-extension://` 的**其它扩展**页面会报 `Cannot access a chrome-extension:// URL of different extension`。而本场景要调试的是**自己的扩展**（BiliScript）的 SW/扩展页，走 browser 级 CDP attach 才是正路 —— 我方路线正确。
+- **`dougen/dsh-cdp` 的两点仍是最值得借鉴的**：唯一常驻连接避免重复弹窗、以及「等待授权」独立状态 + 复用被挂起的 socket。但它**不覆盖扩展调试**（`console`/`network` 都「accepted but capture nothing」，也没有扩展工具），所以它可作为「连接层」的参考，不能作为本场景的替代品。
+- **浏览器级扩展管理只有 `Extensions` domain**：`getExtensions` 只覆盖 **unpacked** 扩展，且 domain 里**没有 reload 命令**——`reload_extension` 是靠重新 `loadUnpacked(extension.path)` 实现的（源码已核）。`ServiceWorker.startWorker` 是唤醒睡着 SW 的正规手段，但无任何 MCP 暴露。
