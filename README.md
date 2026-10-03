@@ -182,16 +182,20 @@ Error: Protocol error (Extensions.triggerAction): Target closed
 
 ## 现场核对：`tools/mcp-probe.mjs`
 
-装 bundle 之前先手工验一遍（`--` 之前是 MCP server 命令，之后是要发的 `tools/call` JSON）：
+装 bundle 之前先手工验一遍（**在仓库根目录下跑**；`--` 之前是 MCP server 命令，之后是要发的 `tools/call` JSON）：
 
 ```powershell
-node tools\mcp-probe.mjs node D:\DSH\dsh-extension-cdp\connect.mjs --no-usage-statistics --categoryExtensions -- `
-  '{\"name\":\"list_extensions\",\"arguments\":{}}' `
-  '{\"name\":\"list_pages\",\"arguments\":{}}'
+node tools\mcp-probe.mjs --% node connect.mjs --no-usage-statistics --categoryExtensions -- {"name":"list_extensions","arguments":{}} {"name":"list_pages","arguments":{}}
 ```
 
+`--%` 是 PowerShell 的「停止解析」标记，它之后的内容原样交给 node —— 不加它，JSON 里的引号会被 PowerShell 吃掉，探针在解析参数时就报 `JSON.parse` 错。PowerShell 7 上也可以不用 `--%`，改用单引号把每段 JSON 分别包起来。
+
 它会 `initialize`、打印工具总数与扩展相关工具名，然后逐个调用并打印结果。
-想先看某个工具的入参 schema，把调用换成 `'{\"$schema\":\"evaluate_script\"}'`。
+想先看某个工具的入参 schema，把调用换成 `{"$schema":"evaluate_script"}`（这种调用由探针本地回答，不连浏览器）。
+
+⚠️ **探针每笔请求的硬编码超时是 60 秒**，而一条新 CDP 连接要先在 Edge 点掉「允许远程调试？」弹窗（机制见上文）。
+所以拿它做首笔**需要浏览器**的调用时，跑起来之后马上把 Edge 窗口翻出来点「允许」；点慢了这次调用会以 `timeout: tools/call` 结束，重跑一次即可。
+不需要连浏览器的调用（工具清单、`$schema`）不受这条影响。
 
 ## 升级前预检：`tools/check-upgrade.mjs`
 
