@@ -185,6 +185,7 @@ test('仓库必需文件齐备', () => {
     'lib/endpoint.mjs',
     'lib/mcp-entry.mjs',
     'lib/filter.mjs',
+    'lib/hang-hint.mjs',
     'lib/args.mjs',
     'locale/zh.json',
     'locale/en.json',
@@ -195,6 +196,7 @@ test('仓库必需文件齐备', () => {
     'test/endpoint.test.mjs',
     'test/mcp-entry.test.mjs',
     'test/filter.test.mjs',
+    'test/hang-hint.test.mjs',
     'test/args.test.mjs',
     'test/package.test.mjs',
   ]) {

@@ -52,6 +52,7 @@ GUI 里那一行显示 `fiberPhase: active` **不能**作为依据 —— 端点
 | `DSH_CDP_MCP_ENTRY` | 自动查找 | 直接指定 chrome-devtools-mcp 入口文件 |
 | `DSH_CDP_MCP_SEARCH_DIRS` | 空 | 额外搜索目录，用 `path.delimiter`（Windows 下 `;`）分隔 |
 | `DSH_CDP_PROBE_TIMEOUT_MS` | `5000` | TCP 探活超时 |
+| `DSH_CDP_APPROVAL_HINT_MS` | `10000` | 首次工具调用挂起多久后给出「可能正在等允许弹窗」的 stderr 诊断；`0` = 关掉 |
 | `DSH_CDP_BLOCKED_TOOLS` | `trigger_extension_action` | 屏蔽的工具名，逗号分隔；空字符串 = 不过滤 |
 
 入口文件不写死版本路径：从 `chrome-devtools-mcp` 的 `package.json` 里 `bin['chrome-devtools-mcp']` 推导。
@@ -87,6 +88,11 @@ GUI 里那一行显示 `fiberPhase: active` **不能**作为依据 —— 端点
 也就是说：**一次点击 = 一条 CDP 连接的生命周期**，弹窗落在这条连接的第一笔请求上，
 之后同一条连接上的所有调用都不再问。需要重新点的情况只有：关掉插件再打开（MCP 子进程
 重启）、MCP 子进程崩溃后重连、Edge 重启（旧 socket 断，下次调用新建连接）。
+
+**挂住的时候你会拿到一条诊断**。被弹窗挂起的连接既不超时也不报错，看起来和卡死一样；
+所以第一笔转发出去的 `tools/call` 超过 `DSH_CDP_APPROVAL_HINT_MS`（默认 10 秒）还没有响应时，
+`connect.mjs` 会往 stderr 写一条带工具名的提醒，告诉你去看一眼 Edge 的那个框。它只写
+stderr、不改动也不吞掉任何 MCP 帧，而且**不会替你去点** —— 那个框只能人点。
 
 所以本插件刻意把连接数压到最低：
 
@@ -127,6 +133,8 @@ node tools\mcp-probe.mjs node D:\DSH\dsh-cdp\connect.mjs --no-usage-statistics -
 
 - `list_pages` 里的 `sw-N` 是**会话内句柄**：每次 MCP 启动都会重新编号，不要把 `sw-2` 记到下一轮。
 - MV3 的 Service Worker 睡着时**不在 `list_pages` 里**，要先用页面里的操作把它唤醒。
+- 那条「等允许弹窗」的诊断走 stderr：DSH 的 MCP 客户端把子进程 stderr 设为 `inherit`
+  （未在 GUI 里逐字核实是否显示），所以它更可能出现在日志／控制台里，而不是聊天窗口里。
 - 只有 Edge 里勾上那个开关时可用；关掉开关后 `connect.mjs` 会以 exit 1 报「DevToolsActivePort 是旧的」。
 - **不要给 `chrome-devtools-mcp` 加 `--slim`**：它会把扩展类工具整个砍掉，这一行就没意义了。
 - 上下文成本：打开这一行后工具目录 41 → 78 个，多出的 37 个（34 个 `mcp__chrome-devtools-mcp__*` + 3 个通用

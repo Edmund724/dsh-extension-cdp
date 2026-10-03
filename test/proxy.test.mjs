@@ -7,7 +7,10 @@
 // 2. 屏蔽工具没从 tools/list 里删掉 / 删错别的工具；
 // 3. 对屏蔽工具的 tools/call 被转发给了子进程（而不是本地回 -32601）——那正是会把 Edge 打崩的调用；
 // 4. 正常工具被误伤（没转发 / 响应没透传）；
-// 5. 子进程的 --wsEndpoint 没拼出来（端点发现与拼装串不起来）。
+// 5. 子进程的 --wsEndpoint 没拼出来（端点发现与拼装串不起来）；
+// 6. 首次 forwarded 的 tools/call 挂住时不给"正在等 Edge 允许"的诊断；反过来，
+//    正常快调用、被屏蔽工具的本地回执、DSH_CDP_APPROVAL_HINT_MS=0 时都不该有这条诊断；
+// 7. 诊断跑进 stdout（破坏"stdout 只有 MCP 帧"的契约）或被吞掉/改动帧。
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -39,7 +42,13 @@ rl.on('line', (line) => {
   } else if (msg.method === 'tools/list') {
     send({ jsonrpc: '2.0', id: msg.id, result: { tools: [{ name: 'list_extensions' }, { name: 'list_pages' }, { name: 'trigger_extension_action' }] } });
   } else if (msg.method === 'tools/call') {
-    send({ jsonrpc: '2.0', id: msg.id, result: { content: [{ type: 'text', text: 'echo:' + msg.params.name }] } });
+    const name = msg.params.name;
+    const hang = (process.env.FAKE_HANG_TOOLS || '').split(',').filter(Boolean);
+    if (hang.includes(name)) return; // 永不回应：模拟"卡在等 Edge 的允许弹窗"
+    const payload = { jsonrpc: '2.0', id: msg.id, result: { content: [{ type: 'text', text: 'echo:' + name }] } };
+    const delayMs = Number(process.env.FAKE_DELAY_MS ?? 0);
+    if (delayMs > 0) setTimeout(() => send(payload), delayMs);
+    else send(payload);
   }
 });
 `;
@@ -105,14 +114,16 @@ async function sandbox() {
   };
 }
 
-function startConnect(box) {
-  const child = spawn(process.execPath, [CONNECT, '--no-usage-statistics', '--categoryExtensions'], {
+function startConnect(box, { env = {}, argv = ['--no-usage-statistics', '--categoryExtensions'] } = {}) {
+  const child = spawn(process.execPath, [CONNECT, ...argv], {
     env: {
       ...process.env,
       DSH_CDP_PORT_FILE: box.portFile,
       DSH_CDP_MCP_ENTRY: box.fakeServer,
       DSH_CDP_PROBE_TIMEOUT_MS: '2000',
+      DSH_CDP_APPROVAL_HINT_MS: '400',
       FAKE_ARGV_FILE: box.argvFile,
+      ...env,
     },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
@@ -229,4 +240,118 @@ test('connect.mjs: 端口不在听时直接退出，不建连接也不弹窗', a
   assert.equal(stdout, '', 'stdout 只能是 MCP 帧，不能有诊断');
   assert.match(stderr, /DevToolsActivePort 是旧的/);
   assert.match(stderr, /edge:\/\/inspect/);
+});
+
+// --- 首次调用挂住 = 大概率在等 Edge 的"是否允许远程调试？"弹窗 ---
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+// 诊断是多行的，只数它的首行标记。
+const hintCount = (client) => client.stderr().split('首次工具调用').length - 1;
+
+async function handshake(client) {
+  const initId = client.send('initialize', {
+    protocolVersion: '2025-06-18',
+    capabilities: {},
+    clientInfo: { name: 'test', version: '1.0.0' },
+  });
+  await waitFor(() => client.reply(initId), { timeoutMs: 15000 });
+}
+
+test('connect.mjs: 首次工具调用挂住时给「允许」诊断，且只走 stderr', async () => {
+  const box = await sandbox();
+  const client = startConnect(box, { env: { FAKE_HANG_TOOLS: 'list_extensions' } });
+  try {
+    await handshake(client);
+    client.send('tools/call', { name: 'list_extensions', arguments: {} });
+
+    await waitFor(() => hintCount(client) > 0, { timeoutMs: 15000 });
+    await sleep(300); // 再等一会儿，确认没有第二条
+    assert.equal(hintCount(client), 1, `只该有一条诊断，实际 ${hintCount(client)} 条`);
+    assert.match(client.stderr(), /list_extensions/, '诊断要指出是谁挂住了');
+    assert.match(client.stderr(), /允许/);
+    assert.match(client.stderr(), /DSH_CDP_APPROVAL_HINT_MS/);
+
+    // stdout 仍然只有 MCP 帧：一条诊断都没有漏进去（漏进去就是协议污染）。
+    assert.equal(
+      client.messages.some((message) => message.unparsable),
+      false,
+      `stdout 出现了非 JSON 内容：${JSON.stringify(client.messages.filter((m) => m.unparsable))}`,
+    );
+    assert.equal(
+      client.messages.some((message) => JSON.stringify(message).includes('允许')),
+      false,
+      '诊断不能出现在 stdout',
+    );
+  } finally {
+    client.child.kill();
+    await box.cleanup();
+  }
+});
+
+test('connect.mjs: 挂起后延迟到达的响应仍被原样透传', async () => {
+  const box = await sandbox();
+  const client = startConnect(box, { env: { FAKE_DELAY_MS: '900' } });
+  try {
+    await handshake(client);
+    const id = client.send('tools/call', { name: 'list_extensions', arguments: {} });
+
+    await waitFor(() => hintCount(client) > 0, { timeoutMs: 15000 });
+    const reply = await waitFor(() => client.reply(id), { timeoutMs: 15000 });
+    assert.equal(reply.result.content[0].text, 'echo:list_extensions');
+  } finally {
+    client.child.kill();
+    await box.cleanup();
+  }
+});
+
+test('connect.mjs: 正常快调用不产生诊断', async () => {
+  const box = await sandbox();
+  const client = startConnect(box);
+  try {
+    await handshake(client);
+    const id = client.send('tools/call', { name: 'list_extensions', arguments: {} });
+    await waitFor(() => client.reply(id), { timeoutMs: 15000 });
+    await sleep(700); // 远超 400ms 的阈值
+    assert.equal(hintCount(client), 0, client.stderr());
+  } finally {
+    client.child.kill();
+    await box.cleanup();
+  }
+});
+
+test('connect.mjs: 被屏蔽工具的本地回执不占用「首次调用」的位置', async () => {
+  const box = await sandbox();
+  const client = startConnect(box, { env: { FAKE_HANG_TOOLS: 'list_extensions' } });
+  try {
+    await handshake(client);
+    // 先调被屏蔽的工具：本地回 -32601，根本没碰 CDP，不该起监控。
+    const blockedId = client.send('tools/call', { name: 'trigger_extension_action', arguments: {} });
+    const blocked = await waitFor(() => client.reply(blockedId), { timeoutMs: 15000 });
+    assert.equal(blocked.error.code, -32601);
+    assert.equal(hintCount(client), 0, '本地回执阶段不该有诊断');
+
+    // 再调真正会建 CDP 连接的那个：它才是"第一次调用"。
+    client.send('tools/call', { name: 'list_extensions', arguments: {} });
+    await waitFor(() => hintCount(client) > 0, { timeoutMs: 15000 });
+    assert.equal(hintCount(client), 1);
+  } finally {
+    client.child.kill();
+    await box.cleanup();
+  }
+});
+
+test('connect.mjs: DSH_CDP_APPROVAL_HINT_MS=0 关掉诊断', async () => {
+  const box = await sandbox();
+  const client = startConnect(box, {
+    env: { FAKE_HANG_TOOLS: 'list_extensions', DSH_CDP_APPROVAL_HINT_MS: '0' },
+  });
+  try {
+    await handshake(client);
+    client.send('tools/call', { name: 'list_extensions', arguments: {} });
+    await sleep(1200);
+    assert.equal(hintCount(client), 0, client.stderr());
+  } finally {
+    client.child.kill();
+    await box.cleanup();
+  }
 });
