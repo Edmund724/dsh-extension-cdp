@@ -218,7 +218,8 @@ node tools\check-upgrade.mjs --version 1.11.0   # 检查候选版本
 ## 已知限制
 
 - `list_pages` 里的 `sw-N` 是**会话内句柄**：每次 MCP 启动都会重新编号，不要把 `sw-2` 记到下一轮。
-- MV3 的 Service Worker 睡着时**不在 `list_pages` 里**，要先用页面里的操作把它唤醒。
+- MV3 的 Service Worker 睡着时**不在 `list_pages` 里**。用页面里的操作、或者对它 `reload_extension`，都能把它拉起来（实测后者：重载之后它的 SW 才出现在列表里）。
+- 扩展工具只覆盖 **unpacked** 扩展：`list_extensions` 列出的就是这些（实测：浏览器里 4 个扩展 SW 活着，它只报了 1 个），`reload_extension` 内部是拿扩展目录路径重新 `loadUnpacked`，所以商店安装的扩展既不在列表里，也不能重载。
 - 那条「等允许弹窗」的诊断走 stderr：DSH 的 MCP 客户端把子进程 stderr 设为 `inherit`
   （未在 GUI 里逐字核实是否显示），所以它更可能出现在日志／控制台里，而不是聊天窗口里。
 - 只有 Edge 里勾上那个开关时可用；关掉开关后 `connect.mjs` 会以 exit 1 报「DevToolsActivePort 是旧的」。

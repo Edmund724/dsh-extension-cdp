@@ -420,14 +420,26 @@ base::WriteFile(output_directory.Append(kDevToolsActivePortFileName), port_targe
 
 ### B. 扩展工具在 WS attach 下真的能用（与 maintainer 说法相反）
 
-真实链路：日常 Edge（`edge://inspect` 开关 + 9222）← `--wsEndpoint ws://127.0.0.1:9222/devtools/browser/<guid>` ← `chrome-devtools-mcp 1.10.1 --categoryExtensions`。实测：
+真实链路：日常 Edge（`edge://inspect` 开关 + 9222）← `--wsEndpoint ws://127.0.0.1:9222/devtools/browser/<guid>` ← `chrome-devtools-mcp 1.10.1 --categoryExtensions`。
+
+**2026-10-03 复核：下面这一版把自己的扩展和第三方 SW 混在了同一张表里。** `evaluate_script` 那行进的是 `sw-1`，而 `sw-1` 属于第三方扩展（直接读它的 manifest：`chrome.runtime.getManifest().name` = `Kimi`，v2.0.15）；`reload_extension` 那行既没记 ID 也没记路径，所以「重载自己的扩展」当时并没有证据。下表是同一天重做的实测，`--workspace D:\src\BiliScript\dist`（BiliScript 的 unpacked 构建目录）：
 
 | 调用 | 结果 |
 |---|---|
-| `list_pages` | 返回 4 个页面 + **5 个扩展 Service Worker（`sw-1`…`sw-5`）** |
-| `list_extensions` | `id=gkbloohhmkmmmdkojmkjchjhaplblpmd "BiliScript｜B站视频文摘" v2.4.0 Enabled` |
-| `reload_extension` | **成功**，且 `sw` 列表随后多出 `sw-6`（证明是真实重载，不是假成功） |
-| `evaluate_script{serviceWorkerId:"sw-1"}` | 成功进入 SW：返回 `{"href":"chrome-extension://bnlffdbcfnanfbknnlaflhlhkocccckg/background.js","kind":"ServiceWorkerGlobalScope"}` |
+| `list_extensions` | 只列出 **1 个**扩展：`"BiliScript｜B站视频文摘" v2.4.0 Enabled`，ID 记作 `<自己的扩展 ID>`（下同，已打码） |
+| `list_pages`（重载前） | 3 个扩展 SW，没有一个是 BiliScript 的（它的 MV3 SW 在睡觉，不在列表里） |
+| `reload_extension{id:"<自己的扩展 ID>"}` | `Extension reloaded.` |
+| `list_pages`（重载后） | 3 → **4** 个 SW，多出的那个 URL 是 `chrome-extension://<自己的扩展 ID>/entry/background.js` |
+| `evaluate_script{serviceWorkerId:"sw-4"}` | `{"href":"chrome-extension://<自己的扩展 ID>/entry/background.js","kind":"ServiceWorkerGlobalScope","runtimeId":"<自己的扩展 ID>","manifestVersion":"2.4.0"}` |
+
+**重载打的到底是不是自己的扩展，可以离线算出来。** `list_extensions` 不输出路径，但 unpacked 扩展的 ID 就是**扩展目录路径的 SHA256 前 16 字节**：`GenerateIdForPath` 先规范化路径（Windows 上只把盘符转成大写），再对 `value()` 的字节（即 UTF-16LE）做 SHA256，取前 16 字节写成十六进制，把每一位 `0-f` 映射成 `a-p`。[id_util.cc](https://github.com/chromium/chromium/blob/main/components/crx_file/id_util.cc)
+
+对本机路径算一遍 `SHA256(UTF-16LE("D:\src\BiliScript\dist"))`，结果与 `list_extensions` 报出的 ID、SW 里读到的 `chrome.runtime.id`、SW URL 里的 ID 都相同；而 `entry/background.js` 正是该目录 `manifest.json` 里 `background.service_worker` 的值。所以那次 `reload_extension` 打的确实是 `D:\src\BiliScript\dist` 这个 unpacked 目录，**不可能是商店安装的副本**（商店 ID 派生自签名公钥，与本地路径无关）。
+
+同一次实测还多出两条：
+
+- `getExtensions` 只覆盖 unpacked：4 个扩展 SW（3 个其它扩展 + 自己那个）同时活着时，`list_extensions` 只报了自己这 1 个。该工具的说明 `Lists all the Chrome extensions installed in the browser` 与实现不符（协议原文是 `Gets a list of all unpacked extensions.`）。
+- 重载能把睡着的 MV3 SW 拉起来：重载之后 BiliScript 的 SW 才出现在 `list_pages` 里。所以「SW 睡着时不在列表里」不等于「对它没法操作」，先重载一次就行。
 
 即 `Extensions.loadUnpacked` / `getExtensions` 在 WS 下可用，**没有**出现官方所称的 `Method not allowed`。注意 `evaluate_script` 在 SW 上**不能**同时传 `pageId`（会报 `specify either a pageId or a serviceWorkerId`），且 `chrome.runtime.getContexts()` 调用超时（不以 Promise 解析）。
 
@@ -458,6 +470,6 @@ EXT TOOLS install_extension, list_extensions, reload_extension, uninstall_extens
 
 ### F. 架构层的取舍结论
 
-- **扩展桥类路线（BrowserRig、pi-control-chrome、dsh-bib、hangwin/mcp-chrome 等）不适用于本场景**：它们的桥扩展用 `chrome.debugger.attach` 只能调试**自己**能访问的 tab，Chrome 官方明确「Attaching to an extension background page is only possible when the `--silent-debugger-extension-api` switch is used」，且对 `chrome-extension://` 的**其它扩展**页面会报 `Cannot access a chrome-extension:// URL of different extension`。而本场景要调试的是**自己的扩展**（BiliScript）的 SW/扩展页，走 browser 级 CDP attach 才是正路 —— 我方路线正确。
+- **扩展桥类路线（BrowserRig、pi-control-chrome、dsh-bib、hangwin/mcp-chrome 等）不适用于本场景**：它们的桥扩展用 `chrome.debugger.attach` 只能调试**自己**能访问的 tab，Chrome 官方明确「Attaching to an extension background page is only possible when the `--silent-debugger-extension-api` switch is used」，且对 `chrome-extension://` 的**其它扩展**页面会报 `Cannot access a chrome-extension:// URL of different extension`。而本场景要调试的是**自己的扩展**（BiliScript）的 SW/扩展页，走 browser 级 CDP attach 才是正路（BiliScript 自己的 SW 已实际进入，见「实地复核」B）—— 我方路线正确。
 - **`dougen/dsh-cdp` 的两点仍是最值得借鉴的**：唯一常驻连接避免重复弹窗、以及「等待授权」独立状态 + 复用被挂起的 socket。但它**不覆盖扩展调试**（`console`/`network` 都「accepted but capture nothing」，也没有扩展工具），所以它可作为「连接层」的参考，不能作为本场景的替代品。
 - **浏览器级扩展管理只有 `Extensions` domain**：`getExtensions` 只覆盖 **unpacked** 扩展，且 domain 里**没有 reload 命令**——`reload_extension` 是靠重新 `loadUnpacked(extension.path)` 实现的（源码已核）。`ServiceWorker.startWorker` 是唤醒睡着 SW 的正规手段，但无任何 MCP 暴露。
