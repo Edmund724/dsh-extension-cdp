@@ -28,6 +28,27 @@
 - **挂起诊断** —— 首笔调用挂起超过 `DSH_CDP_APPROVAL_HINT_MS` 时，提示去看 Edge 的「允许远程调试」弹窗：
   `lib/hang-hint.mjs`
 
+## 相比之下多出来的那件事：热重载自己的扩展
+
+上面这几个工具里真正稀缺的是 `reload_extension`：**它从浏览器外部把你正在开发的 unpacked 扩展重新加载一遍**，
+改完代码不用再回 `edge://extensions` 点刷新。实测：浏览器里 4 个扩展 SW 同时活着时，重载之后自己那个的 SW
+才出现在 `list_pages` 里，且打的确实是本机那个构建目录（证据链见 [docs/research-cdp-extension-mcp.md](docs/research-cdp-extension-mcp.md) 的「实地复核」）。
+
+装一个扩展当中转的「桥接类」路线做不到这件事：加载 / 重载扩展要用浏览器级的 `Extensions` CDP 域，而桥接扩展
+受 `chrome.*` 权限约束，只能操作自己够得着的标签页。就本仓库调研覆盖的那几个而言 ——
+[Kimi WebBridge](https://chromewebstore.google.com/detail/kimi-webbridge/fldmhceldgbpfpkbgopacenieobmligc)
+这个中转扩展只提供标签页级操作 —— 社区封装的 [kimi-webbridge-mcp](https://github.com/AkagiYui/kimi-webbridge-mcp)
+操作表列的就是 navigate / snapshot / click / fill / evaluate / screenshot / pdf / network / tabs / upload，
+两个 DSH 版封装
+（[MicroHEROX/dsh-Kimi-WebBridge](https://github.com/MicroHEROX/dsh-Kimi-WebBridge)、
+[Bernardxu123/dsh-kimi-webbridge](https://github.com/Bernardxu123/dsh-kimi-webbridge)）暴露的是 15、16 个
+`kimi_webbridge_*` 浏览器操作，同样没有任何扩展管理工具；`pi-control-chrome`、`hangwin/mcp-chrome` 也是这个形状。
+逐项对照表在调研文档的「同类 DSH 插件对比」一节。
+
+两个限定，别读成更强的结论：**只对 unpacked 扩展有效** —— 商店安装的扩展不在 `list_extensions` 里，也不能重载
+（它的 ID 派生自签名公钥，本机没有对应目录）；**「做不到」只指上面点名的那几个**，不是说没有别的工具能做到 ——
+任何走浏览器级 CDP 的工具都能拿到这些工具，本插件的差异只在于把它们接在**你日常那个 Edge** 上。
+
 ## 怎么开关
 
 - GUI：Settings → Plugins，打开/关闭 `dsh-extension-cdp` 这一行。
@@ -54,6 +75,9 @@ GUI 里那一行显示 `fiberPhase: active` **不能**作为依据 —— 端点
 `%LOCALAPPDATA%\Microsoft\Edge\User Data\DevToolsActivePort`。注意：
 
 - **guid 每次重开开关都会变**，所以每次启动都必须重读这个文件（不能缓存）；
+- 开关状态存在 Edge 的 Local State 里（`devtools.remote_debugging.user-enabled`，本机实测为 `true`），
+  所以 **Edge 重启后不用重新勾选** —— 服务器会自己再起来并重写这个文件（guid 会变，这正是包装脚本
+  每次 spawn 都要重读它的原因）；但每条**新的** CDP 连接仍要重新点一次「允许」（机制见下文）；
 - 关掉开关后文件**不会删除**，只是端口不再监听 —— 所以「文件存在」不等于「能连」；
 - 用 `--remote-debugging-port=<p>` 启动的 Edge **不写**这个文件。
 
@@ -145,7 +169,14 @@ GUI 里那一行显示 `fiberPhase: active` **不能**作为依据 —— 端点
 
 也就是说：**一次点击 = 一条 CDP 连接的生命周期**，弹窗落在这条连接的第一笔请求上，
 之后同一条连接上的所有调用都不再问。需要重新点的情况只有：关掉插件再打开（MCP 子进程
-重启）、MCP 子进程崩溃后重连、Edge 重启（旧 socket 断，下次调用新建连接）。
+重启）、MCP 子进程崩溃后重连、DSH 重启、Edge 重启（旧 socket 断，下次调用新建连接）、
+以及你在 `edge://inspect` 里把开关关掉再打开。
+
+**这条授权没有时间上限。** Chromium 侧它就是「这条连接放行」的一次性回调：用户点「允许」后
+握手被接受、连接登记进表，此后不再做任何检查，对话框源码里既没有计时器也没有「记住」状态
+（见下文与调研文档的源码引用）。所以它不会过几小时自己失效 —— 会断的只可能是连接本身，也就是上面那几种情况。
+反过来，**关掉对话框等于拒绝**：Cancel、窗口关闭、「Turn off in settings」三个出口都回 `kDeny`，
+这次握手拿到 `403 Connection rejected`，DSH 那边表现为一次失败的工具调用，重试就会重新弹窗。
 
 **挂住的时候你会拿到一条诊断**。被弹窗挂起的连接既不超时也不报错，看起来和卡死一样；
 所以第一笔转发出去的 `tools/call` 超过 `DSH_CDP_APPROVAL_HINT_MS`（默认 10 秒）还没有响应时，
