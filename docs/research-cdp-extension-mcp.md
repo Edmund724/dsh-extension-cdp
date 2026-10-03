@@ -366,13 +366,31 @@ base::WriteFile(output_directory.Append(kDevToolsActivePortFileName), port_targe
 1. **把「等待授权」建模成独立状态，并复用被挂起的 socket**（收益高、可行性高）。`dsh-cdp` 的原文：「浏览器等待授权时，socket 既不 `open` 也不 `error`，只是沉默。插件给握手设了期限，把这段沉默归类成该状态。被挂起的 socket 会保留并复用：你点 Allow 后直接接管，不会另开连接（那会弹第二个授权框）。」这正是我方裸 WebSocket 挂起现象的独立佐证；即使我方坚持「只做 TCP 转发」，也应把"转发通道建立后握手无响应"与"浏览器没开调试端口"区分成两个不同状态返回给上层，避免上层重试放大弹窗。[dsh-cdp](https://dshmp.com/en/plugins/dsh-cdp)
 2. **连接复用 / 唯一长连接，多会话在同一 socket 上用 flat session**（收益高、可行性中）。`dsh-cdp`、`dsh-browser-attach`、chrome-devtools-mcp 的 `--autoConnect` 文档都以「一条常驻连接」为核心；上游 issue #1794 的诉求也正是这个方向。具体技术做法已有开源先例：只连 `/devtools/browser/<uuid>`，再用 `Target.attachToTarget{flatten:true}` 的 `sessionId` 在同一 WebSocket 上复用所有 target —— 见 [sblattj/cdp-toolkit#9](https://github.com/sblattj/cdp-toolkit/pull/9)（理由是 `chrome://inspect` 开关打开后 `/json/*` 返回 404，只能走 browser socket）与 [QwenLM/qwen-code#8740](https://github.com/QwenLM/qwen-code/pull/8740)（daemon 的 `/cdp` 隧道对多客户端共享一条 Chrome 桥）。chrome-remote-interface 也支持 `sessionId`（事件名形如 `<domain>.<method>.<sessionId>`）。[issue #1794](https://github.com/ChromeDevTools/chrome-devtools-mcp/issues/1794)、[CRI README](https://github.com/cyrus-and/chrome-remote-interface/blob/master/README.md)
 3. **零新增工具面：把能力挂在回环 HTTP 路由 + skill 上**（收益高、可行性高，取决于产品形态）。`dsh-cdp` 明确「新增的模型可见工具 schema 是 0 个」，用法由随插件注册的 `browser-cdp` skill 承载、按需加载。对照 `xiaobai2017666/dsh-chrome-cdp` 的 11 工具 ≈ 2K tokens 常驻。我方目前把 chrome-devtools-mcp 整个工具面塞进上下文，这是最大且最容易改的一项。[dsh-cdp](https://dshmp.com/en/plugins/dsh-cdp)、[dsh-chrome-cdp README](https://github.com/xiaobai2017666/dsh-chrome-cdp)
-4. **工具分组可整组关闭，关闭即零 schema 占用**（收益中、可行性高）。`xiaobai2017666/dsh-chrome-cdp` 的做法（preset 里 `groups.<name>: false` → 不注册）比"注册了再隐藏"干净；上游 chrome-devtools-mcp 的 `--categoryXxx` 与 `--slim` 是同类思路，但 attach 模式下扩展分类被硬禁，我方需要自己的分组层。[dsh-chrome-cdp](https://github.com/xiaobai2017666/dsh-chrome-cdp)、[categories.ts](https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/src/tools/categories.ts)
+4. **工具分组可整组关闭，关闭即零 schema 占用**（收益中、可行性高）。`xiaobai2017666/dsh-chrome-cdp` 的做法（preset 里 `groups.<name>: false` → 不注册）比"注册了再隐藏"干净，且顺带白拿一个错误契约（见第 6 条）；上游 `chrome-devtools-mcp` 的 `--categoryXxx` / `--slim` 是同类思路但粒度更粗（`--slim` 会把扩展工具一起砍掉，本场景不能用）。~~attach 模式下扩展分类被硬禁~~ **该硬禁只在上游 main（未发布）存在，1.10.1 上不成立**（见「实地复核」A），所以「按需注册」是我方唯一可用的裁剪手段。[dsh-chrome-cdp](https://github.com/xiaobai2017666/dsh-chrome-cdp)、[categories.ts](https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/src/tools/categories.ts)
 5. **路径白名单**（收益中、可行性高）。chrome-devtools-mcp 的 `--workspace` = `--filesystemRoot`（可重复、默认 OS 临时目录），并已把 `--allowUnrestrictedPaths` 标为 deprecated 指向 `--workspace=/`。我方的 `--workspace <dist>` 用法与官方语义一致，但要注意默认值本来就是「临时目录」而不是「无限制」，别把它当成开启权限的开关。[mcp-options.ts](https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/src/config/mcp-options.ts)
 6. **错误自愈：结构化 `{error, hint}` 输出 + 声明可选 error 字段**（收益中、可行性高）。`xiaobai2017666/dsh-chrome-cdp` 让所有工具的输出 schema 都声明可选 `error`/`hint`，避免错误分支被 `additionalProperties: false` 判成 invalid output。这类"错误也是契约的一部分"能显著减少 agent 的重试噪声。[dsh-chrome-cdp README](https://github.com/xiaobai2017666/dsh-chrome-cdp)
 7. **sw-N 句柄问题的可借鉴做法**（收益中、可行性中）。上游把 worker 句柄做成进程内自增（`sw-1`，重连不复用），并且 `list_pages` 的描述会随 `categoryExtensions` 变；它**不解决**「MV3 SW 睡着后不在列表里」——这是浏览器侧 target 生命周期问题，任何 MCP 都无法凭空列出睡着的 SW。真正可用的手段是浏览器级 `ServiceWorker.startWorker`（官方协议里存在，但没有 MCP 暴露它）。可行的借鉴是：列表接口对「已知但当前不在线的 SW」保留条目并附上唤醒方式，而不是让 agent 以为它不存在。[McpWorker.ts](https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/src/McpWorker.ts)、[tools/pages.ts](https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/src/tools/pages.ts)、[browser_protocol.json](https://github.com/ChromeDevTools/devtools-protocol/blob/master/json/browser_protocol.json)
 8. **只做 TCP 探活不建 CDP 连接，是对的选择**（收益：确认既有设计，无需改动）。[issue #1794](https://github.com/ChromeDevTools/chrome-devtools-mcp/issues/1794) 说明轮询式 CDP 连接会叠加弹窗；TCP 层探测不触发 approval。更强的旁证是 [vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser/commit/9ef6c1e53627b244c9a3151f4a9af545fd3d9cdf)：它的 2 秒 verify 超时后**回退到 HTTP 发现，结果又触发了一个弹窗**，还把仍处在等待状态的 Chrome 的 `DevToolsActivePort` 文件删掉了。结论：握手挂住时**不要重试、不要回退到 HTTP 发现**，保持连接或直接把这个状态报给上层。可以把这个理由写进 README，避免后来者"顺手加个 /json 探活"。
 9. **审计与状态落盘**（收益中、可行性高）。`dsh-browser-attach` 把 `audit.jsonl` / `state.json` / `daemon.pid` 写在 `~/.config/browserctl/`。对"驱动用户日常浏览器"这类高风险能力，可回溯的审计记录值得照抄。[dsh-browser-attach](https://github.com/JackAIStudio/dsh-browser-attach)
 10. **上游的 design-principles 文档本身可借鉴**（收益低-中）。`Token-Optimized`（"LCP was 3.2s" 好过 50k 行 JSON）、`Reference over Value`（重资产只回文件路径）、`Self-Healing Errors` 三条可以直接作为我方工具设计的检查表。[design-principles.md](https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/docs/design-principles.md)
+
+## 亮点汇总（如果只带走几条）
+
+按「对本场景的杠杆」排序，前 4 条是真正值得动手的：
+
+1. **握手挂住 = 独立状态，且复用被挂起的 socket**（第 1 条）。最贴合我方痛点：approval 模式下 socket 既不 `open` 也不 `error`，把它与「端口没开」区分开、并且**不重试、不回退 `/json`**。反面教材（第 8 条）已经踩过：超时后回退 HTTP 发现会**再弹一次**，还会删掉仍在等待的 `DevToolsActivePort`。
+2. **零新增工具面**（第 3 条）：能力挂回环 HTTP 路由 + 一个按需加载的 skill，把常驻 schema 从 28 KB 压到 0。我方目前是这次调研里上下文成本最高的一项。
+3. **分组开关：不注册 = 零 schema 占用**（第 4 条，`xiaobai2017666/dsh-chrome-cdp` 的 `groups.<name>: false`）。比"注册了再隐藏"干净；`--slim` 不能用于本场景（会连扩展工具一起砍掉）。
+4. **结构化 `{error, hint}` 输出 + 在 output schema 里声明可选 `error` 字段**（第 6 条，同上仓库）。错误分支返回结构化对象，避免被 `additionalProperties: false` 判成 invalid output；"错误也是契约的一部分"能显著减少 agent 重试噪声。**这条与第 3 条是同一个仓库白拿的两件事**，互相独立、都可直接照抄。
+5. **`--workspace` 是 `--filesystemRoot` 的别名**（第 5 条）：默认值就是 OS 临时目录，不是"无限制"，别当成权限开关。
+6. **审计落盘**（第 9 条）：`dsh-browser-attach` 写 `audit.jsonl` / `state.json` / `daemon.pid`。驱动用户日常浏览器属高风险，可回溯记录值得照抄。
+
+## 可选后续（均未实施，未开始）
+
+1. **唤醒睡着的 MV3 SW**：`ServiceWorker.startWorker` 是浏览器级协议里的正规手段，但**没有任何 MCP 暴露它**。若要解决「SW 睡着后不在 `list_pages` 里」，需自己直发该 CDP 命令；可复用仓库已有的 `tools/mcp-probe.mjs`（MCP stdio 直连探测）或 `connect.mjs` 的转发面。参考协议定义：[browser_protocol.json](https://github.com/ChromeDevTools/devtools-protocol/blob/master/json/browser_protocol.json)。
+2. **给 `sw-N` 句柄加"已知但当前离线"条目**（第 7 条）：不做唤醒，只在列表里保留条目并附唤醒方式，避免 agent 误判 SW 不存在。
+3. **按第 2/3 条做连接层重构**（唯一常驻连接 + 回环 HTTP + skill）：这是把常驻 28 KB schema 换掉的最大改造，属跨模块结构性调整，动手前需先给方案。
+4. **记录上游 issue**：`trigger_extension_action` 在**有头 + WS attach** 下打崩浏览器（`Target closed` + 10.4 MB dump）在上游只有 2 条相关命中、无崩溃报告，值得单独提一条最小复现（本文件「实地复核」C 已给出可复用的对照实验设计：headless 不崩、有头崩）。
 
 ## 未解问题
 
