@@ -211,5 +211,7 @@ test('approvalHintText: 带上工具名、等待时长与关闭方式', () => {
   assert.match(text, /DSH_CDP_APPROVAL_HINT_MS/);
   // 不能谎称调用失败：这次调用仍在等
   assert.match(text, /没有失败/);
+  // 但要提醒"拖久了会作废"，否则用户以为可以无限期慢慢点
+  assert.match(text, /期限/);
   assert.equal(/超时|已失败|出错/.test(text), false);
 });

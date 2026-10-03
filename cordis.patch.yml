@@ -25,6 +25,12 @@
         # do not fail activation, let the reconnect policy below keep retrying
         # so flipping the switch later connects on its own.
         failOnStartupError: false
+        # The MCP client allows 60 s per tools/call by default. In approval mode the
+        # first call is the one waiting for the human to click "Allow remote
+        # debugging?" in Edge, and 60 s is too short to go find that dialog -- the
+        # call then fails and the click was wasted. 5 minutes; a genuinely stuck
+        # call is still cancellable like any other tool call.
+        toolCallTimeoutMs: 300000
         # The MCP client hands the child a scrubbed environment: every DSH_* name
         # is dropped, so DSH_PROFILE_DIR never reaches connect.mjs on its own.
         # Explicit `env` merges after that scrub, so forward the Host-side value

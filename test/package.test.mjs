@@ -143,6 +143,9 @@ test('cordis.patch.yml: 解析出的行与 config 正确', () => {
   assert.equal(row.config.serverName, 'chrome-devtools-mcp');
   assert.deepEqual(row.config.command, { __jsExpr: 'process.execPath' });
   assert.equal(row.config.failOnStartupError, false);
+  // DSH 的 MCP 客户端默认每次 tools/call 只等 60 秒；approval 模式下第一笔调用要等人去点
+  // Edge 的弹窗，60 秒太短（点晚了这次调用直接失败，点了也白点），所以必须放宽。
+  assert.equal(row.config.toolCallTimeoutMs, 300000);
   assert.equal(row.config.reconnect.maxAttempts, 1000);
   assert.equal(row.config.reconnect.maxDelayMs, 30000);
   assert.equal(row.config.args[0], 'D:\\DSH\\dsh-cdp\\connect.mjs');
