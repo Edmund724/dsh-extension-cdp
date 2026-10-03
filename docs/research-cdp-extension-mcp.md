@@ -430,7 +430,7 @@ base::WriteFile(output_directory.Append(kDevToolsActivePortFileName), port_targe
 | `list_pages`（重载前） | 3 个扩展 SW，没有一个是 BiliScript 的（它的 MV3 SW 在睡觉，不在列表里） |
 | `reload_extension{id:"<自己的扩展 ID>"}` | `Extension reloaded.` |
 | `list_pages`（重载后） | 3 → **4** 个 SW，多出的那个 URL 是 `chrome-extension://<自己的扩展 ID>/entry/background.js` |
-| `evaluate_script{serviceWorkerId:"sw-4"}` | `{"href":"chrome-extension://<自己的扩展 ID>/entry/background.js","kind":"ServiceWorkerGlobalScope","runtimeId":"<自己的扩展 ID>","manifestVersion":"2.4.0"}` |
+| `evaluate_script{serviceWorkerId:"sw-4"}` | `{"href":"chrome-extension://<自己的扩展 ID>/entry/background.js","kind":"ServiceWorkerGlobalScope","runtimeId":"<自己的扩展 ID>","manifestVersion":"2.4.0"}`（`sw-4` 是**那一次会话**里的句柄：同一个 `list_pages` 换一次 MCP 启动就会重排，重跑时按 URL 认，别照抄 `sw-4`） |
 
 **重载打的到底是不是自己的扩展，可以离线算出来。** `list_extensions` 不输出路径，但 unpacked 扩展的 ID 就是**扩展目录路径的 SHA256 前 16 字节**：`GenerateIdForPath` 先规范化路径（Windows 上只把盘符转成大写），再对 `value()` 的字节（即 UTF-16LE）做 SHA256，取前 16 字节写成十六进制，把每一位 `0-f` 映射成 `a-p`。[id_util.cc](https://github.com/chromium/chromium/blob/main/components/crx_file/id_util.cc)
 
