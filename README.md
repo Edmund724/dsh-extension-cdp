@@ -9,7 +9,12 @@
 ## 怎么开关
 
 - GUI：Settings → Plugins，打开/关闭 `dsh-cdp` 这一行。
-- CLI：`plugin_manager set_plugin dsh-cdp --enabled true|false`（具体参数以你手里的 plugin_manager 为准）。
+- CLI / `plugin_manager`：要按**那个行的地址**来，不是行 id ——
+  `action: set_plugin`、`target: include:dsh-cdp`、`enabled: true|false`
+  （`target: dsh-cdp` 会回 `unknown-plugin`，那是 patch id，不是可寻址的 entryId）。
+
+实测：`set_plugin` 会把 `- id: dsh-cdp` + `disabled:` 的覆盖行写进 profile 的
+`cordis.patch.yml`（DSH 自己的机制，不用手写）。
 
 端点缺席时不会让激活失败（`failOnStartupError: false` + `reconnect`），所以可以先把这一行打开，
 之后再去 Edge 里翻开关，它会自己连上。
