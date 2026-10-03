@@ -3,8 +3,8 @@
 把 DSH 的 Chrome DevTools MCP 客户端 attach 到你**正在跑的日常浏览器**（不是另开一个），
 这样扩展调试类工具（`list_extensions`、扩展 Service Worker 的 `evaluate_script` 等）能像一行插件一样随开随关。
 
-默认按 **Edge → Chrome** 的顺序自动探测 user data 目录，也可以用 `DSH_CDP_USER_DATA_DIR` 显式指定。
-机制与浏览器品牌无关，细节见[兼容性](docs/compatibility.md)。
+默认按 **Edge → Chrome** 的顺序自动探测 user data 目录，也可以用 `DSH_CDP_USER_DATA_DIR` 显式指定；
+能不能换别的浏览器见[通用性](#通用性)。
 
 它是一个**配置型 bundle**：`cordis.patch.yml` 插入一行 `@deepseek-ai/dsh-mcp-client`，
 `connect.mjs` 作为包装脚本负责「发现端点 → 校验 → 透明转发」。CDP 与工具全部来自上游
@@ -15,6 +15,16 @@
 
 在上游之上，它做五件事：端点发现（`lib/endpoint.mjs`、`lib/mcp-entry.mjs`）、参数注入（`lib/args.mjs`）、
 工具面裁剪（`lib/tool-surface.mjs`）、安全拦截（`lib/filter.mjs`）、挂起诊断（`lib/hang-hint.mjs`）。
+
+## 通用性
+
+- **Edge**：可用，本仓库的实测环境，入口 `edge://inspect`。
+- **Chrome 144+**：机制相同，本机未实测，入口 `chrome://inspect#remote-debugging`；144 之前没有那个 approval 开关，走不通。
+- **其它 Chromium 分支**（Brave、Vivaldi 等）：未实测；跟随上游 Chromium 版本的话会有同一个开关。
+
+与品牌无关的依据：用到的是 Chromium 自己的 `DevToolsActivePort`、inspect 页的 approval 开关、
+browser 级 `Extensions` CDP 域，没有 Edge 专有 API。候选路径按平台给（Windows `%LOCALAPPDATA%`、
+macOS `~/Library/Application Support/`、Linux `~/.config/`）。逐项依据与实测边界见[兼容性](docs/compatibility.md)。
 
 ## 前置条件
 
