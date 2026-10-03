@@ -181,15 +181,15 @@ static create(type, target) { return new McpWorker(`${workerIdPrefix(type)}-${ne
 
 **真正被 MCP 封装的是 CDP 的 `Extensions` domain**，而它只存在于浏览器级连接上。官方协议定义（`devtools-protocol/json/browser_protocol.json`）里该 domain 的**全部**命令：
 
-  | 命令 | 说明（原文） |
-  |---|---|
-  | `triggerAction` | `Runs an extension default action.` |
-  | `loadUnpacked` | `Installs an unpacked extension from the filesystem similar to --load-extension CLI flags. Returns extension ID once the extension has been installed.` |
-  | `getExtensions` | `Gets a list of all unpacked extensions.` |
-  | `uninstall` | `Uninstalls an unpacked extension (others not supported) from the profile.` |
-  | `getStorageItems` / `setStorageItems` / `removeStorageItems` / `clearStorageItems` | 读写扩展 storage，带 `storageArea` 参数 |
+| 命令 | 说明（原文） |
+|---|---|
+| `triggerAction` | `Runs an extension default action.` |
+| `loadUnpacked` | `Installs an unpacked extension from the filesystem similar to --load-extension CLI flags. Returns extension ID once the extension has been installed.` |
+| `getExtensions` | `Gets a list of all unpacked extensions.` |
+| `uninstall` | `Uninstalls an unpacked extension (others not supported) from the profile.` |
+| `getStorageItems` / `setStorageItems` / `removeStorageItems` / `clearStorageItems` | 读写扩展 storage，带 `storageArea` 参数 |
 
-  来源：[browser_protocol.json](https://github.com/ChromeDevTools/devtools-protocol/blob/master/json/browser_protocol.json)。两个值得注意的点：`getExtensions` 只覆盖 **unpacked** 扩展；domain 里**没有** reload 命令，所以 chrome-devtools-mcp 的 `reload_extension` 是靠重新 `installExtension(extension.path)` 实现的。[src/tools/extensions.ts](https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/src/tools/extensions.ts)
+来源：[browser_protocol.json](https://github.com/ChromeDevTools/devtools-protocol/blob/master/json/browser_protocol.json)。两个值得注意的点：`getExtensions` 只覆盖 **unpacked** 扩展；domain 里**没有** reload 命令，所以 chrome-devtools-mcp 的 `reload_extension` 是靠重新 `installExtension(extension.path)` 实现的。[src/tools/extensions.ts](https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/src/tools/extensions.ts)
 - `ServiceWorker` domain 同样存在于浏览器级协议，命令有 `startWorker`、`stopWorker`、`stopAllWorkers`、`dispatchSyncEvent`、`dispatchPeriodicSyncEvent`、`deliverPushMessage`、`skipWaiting`、`updateRegistration`、`unregister`、`enable`、`disable`、`setForceUpdateOnPageLoad`。[browser_protocol.json](https://github.com/ChromeDevTools/devtools-protocol/blob/master/json/browser_protocol.json) —— `startWorker` 是解决「MV3 SW 睡着后不在 list_pages 里」的正规手段，但本次没有找到任何 MCP 工具把它暴露出来。
 - 上游与扩展调试相关的 issue：[#265 Add a flag for loading extensions](https://github.com/ChromeDevTools/chrome-devtools-mcp/issues/265)（提出了「用 MCP 调试扩展」的需求，最终落地为 `--categoryExtensions`）、[#1173](https://github.com/ChromeDevTools/chrome-devtools-mcp/issues/1173)、[#510 MCP times out when browser has MetaMask extension](https://github.com/ChromeDevTools/chrome-devtools-mcp/issues/510)（装了扩展导致工具全部超时）、[#1921 标签页极多时浏览器在首次工具调用时崩溃](https://github.com/ChromeDevTools/chrome-devtools-mcp/issues/1921)。
 
