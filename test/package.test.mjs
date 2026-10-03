@@ -186,6 +186,7 @@ test('仓库必需文件齐备', () => {
     'lib/mcp-entry.mjs',
     'lib/filter.mjs',
     'lib/hang-hint.mjs',
+    'lib/upgrade-check.mjs',
     'lib/args.mjs',
     'locale/zh.json',
     'locale/en.json',
@@ -197,7 +198,9 @@ test('仓库必需文件齐备', () => {
     'test/mcp-entry.test.mjs',
     'test/filter.test.mjs',
     'test/hang-hint.test.mjs',
+    'test/upgrade-check.test.mjs',
     'test/args.test.mjs',
+    'tools/check-upgrade.mjs',
     'test/package.test.mjs',
   ]) {
     assert.ok(repoFiles.includes(rel), `缺文件 ${rel}`);

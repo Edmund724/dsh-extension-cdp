@@ -129,6 +129,28 @@ node tools\mcp-probe.mjs node D:\DSH\dsh-cdp\connect.mjs --no-usage-statistics -
 它会 `initialize`、打印工具总数与扩展相关工具名，然后逐个调用并打印结果。
 想先看某个工具的入参 schema，把调用换成 `'{\"$schema\":\"evaluate_script\"}'`。
 
+## 升级前预检：`tools/check-upgrade.mjs`
+
+「已知限制」里那条升级风险，现在有脚本兜着：
+
+```powershell
+node tools\check-upgrade.mjs                    # 检查当前已装的那份
+node tools\check-upgrade.mjs --version 1.11.0   # 检查候选版本
+```
+
+它只**读**候选产物：下载到临时目录、解包、读 `EXTENSIONS` 分类有没有 `conflicts`、产物里有没有
+`CONFLICTING_ARGS` 互斥表，然后删掉临时目录。**候选产物绝不执行**。
+
+| 退出码 | 结论 | 含义 |
+|---|---|---|
+| 0 | 安全 | 分类没有互斥表，也没有别的互斥机制 |
+| 1 | 不安全 | `--wsEndpoint`（或 `--browserUrl`）已被写进互斥表，升上去这一行会启动即失败 |
+| 2 | 无法判定 | 产物结构变了，或存在这个脚本看不透的互斥机制 —— 人看一眼再决定 |
+| 3 | 用法 / 运行错误 | 参数错、版本不存在、下载或解包失败 |
+
+**预检通过不等于万事大吉**：它读的是"分类互斥表"，不是完整的行为等价性。升级后仍建议随手
+调用一次 `list_extensions`，确认扩展工具真的在。
+
 ## 已知限制
 
 - `list_pages` 里的 `sw-N` 是**会话内句柄**：每次 MCP 启动都会重新编号，不要把 `sw-2` 记到下一轮。
@@ -145,7 +167,8 @@ node tools\mcp-probe.mjs node D:\DSH\dsh-cdp\connect.mjs --no-usage-statistics -
   **main 分支已加入** `['categoryExtensions','browserUrl','wsEndpoint']` 这条互斥检查（对照：`PWA` 分类在
   1.10.1 就带 `conflicts`，实测 `--categoryPwa --wsEndpoint` 直接 exit 1）。也就是说**下一个把该检查发出来的
   版本会让这一行启动即失败**。升级后若本行起不来，先查 `chrome-devtools-mcp` 的 `CONFLICTING_ARGS` / 该分类
-  是否带 `conflicts`，再决定锁旧版还是改路线。详见调研文档
+  是否带 `conflicts`，再决定锁旧版还是改路线。升级前先跑一次
+  `node tools\check-upgrade.mjs --version <候选版本>`（见上一节）。详见调研文档
   [docs/research-cdp-extension-mcp.md](docs/research-cdp-extension-mcp.md) 末节「实地复核」。
 
 ## 测试
