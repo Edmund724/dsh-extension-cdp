@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "Edge DevTools attach",
-    "description": "Attaches the DSH Chrome DevTools MCP client to the Edge you are already running: flip remote debugging on in edge://inspect and this row connects."
+    "title": "Edge extension DevTools",
+    "description": "Extension debugging: attaches the DSH Chrome DevTools MCP client to the Edge you are already running — no second browser, no fresh profile."
   }
 }

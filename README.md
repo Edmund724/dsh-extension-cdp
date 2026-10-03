@@ -4,7 +4,27 @@
 这样扩展调试类工具（`list_extensions`、扩展 Service Worker 的 `evaluate_script` 等）能像一行插件一样随开随关。
 
 它是一个**配置型 bundle**：`cordis.patch.yml` 插入一行 `@deepseek-ai/dsh-mcp-client`，
-`connect.mjs` 作为包装脚本负责"发现端点 → 校验 → 透明转发"。
+`connect.mjs` 作为包装脚本负责"发现端点 → 校验 → 透明转发"（它做的完整几件事见下一节）。
+
+## 它是什么
+
+`chrome-devtools-mcp`（Google 官方）的**启动适配层**，不是它的重新实现：本仓库不含任何 CDP / DevTools
+代码，不自己建连接，也不重写任何一个工具 —— 工具能力全部来自上游那一个进程。
+
+用途很具体：**调试浏览器扩展**。扩展装在日常 Edge 里，所以得 attach 日常 profile；而日常 profile 只剩
+`edge://inspect` 这一条路（原因见「前置条件」一节）。
+
+在这个前提下，它只做五件上游不做、或做得不对的事：
+
+- **端点发现** —— 每次启动重读 `DevToolsActivePort`（guid 每次重开开关都会变）、TCP 探活、再定位上游入口：
+  `lib/endpoint.mjs`、`lib/mcp-entry.mjs`
+- **参数注入** —— 把 `--wsEndpoint` 顶到参数最前，用户/包配置里的参数原样追加：`lib/args.mjs`
+- **工具面裁剪** —— 默认只直出 5 个扩展调试工具，其余收进 `cdp_call` 元工具按需取（见「工具面」一节）：
+  `lib/tool-surface.mjs`
+- **安全拦截** —— 把会把浏览器打崩的 `trigger_extension_action` 从 `tools/list` 里删掉、并硬拦对它的
+  `tools/call`（`cdp_call` 也绕不过去）：`lib/filter.mjs`
+- **挂起诊断** —— 首笔调用挂起超过 `DSH_CDP_APPROVAL_HINT_MS` 时，提示去看 Edge 的「允许远程调试」弹窗：
+  `lib/hang-hint.mjs`
 
 ## 怎么开关
 

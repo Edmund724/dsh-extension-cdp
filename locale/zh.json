@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "Edge 调试附加",
-    "description": "把 DSH 的 Chrome DevTools MCP 客户端 attach 到你正在跑的 Edge：在 edge://inspect 打开远程调试，这一行就通，关掉就断。"
+    "title": "Edge 扩展调试",
+    "description": "调试浏览器扩展：把 DSH 的 Chrome DevTools MCP 客户端 attach 到你正在跑的日常 Edge —— 不用另开浏览器、不用新 profile，关掉这一行就断开。"
   }
 }
