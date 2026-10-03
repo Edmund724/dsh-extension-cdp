@@ -6,11 +6,11 @@
 
 ## TL;DR
 
-1. ~~上游 `chrome-devtools-mcp` 已经**显式禁止**「attach 已运行浏览器」与「扩展工具」同时启用……在 v1.10.1 上会被启动期拒绝~~ **【2026-10-03 实测推翻，见文末「实地复核」】**。该禁令只存在于上游 **main 分支未发布的代码**里；**发布版 1.10.1 的构建产物中不存在 `CONFLICTING_ARGS`**，且 1.10.1 的 `EXTENSIONS` 分类选项**不带 `conflicts`**（只有 `PWA` 带）。实验：`--categoryPwa --wsEndpoint` → exit 1（被拒），`--categoryExtensions --wsEndpoint` → exit 0（正常启动）。**我方 `--categoryExtensions` attach 日常 Edge 的组合在 1.10.1 上合法且已实测可用**。[mcp-options.ts（main，未发布）](https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/src/config/mcp-options.ts) [1.10.1 发布包实测](https://registry.npmjs.org/chrome-devtools-mcp)
+1. ~~上游 `chrome-devtools-mcp` 已经**显式禁止**「attach 已运行浏览器」与「扩展工具」同时启用……在 v1.10.1 上会被启动期拒绝~~ **【2026-10-03 实测推翻，见文末「实地复核」】**。该禁令只存在于上游 **main 分支未发布的代码**里；**发布版 1.10.1 的构建产物中不存在 `CONFLICTING_ARGS`**，且 1.10.1 的 `EXTENSIONS` 分类选项**不带 `conflicts`**（只有 `PWA` 带）。实验：`--categoryPwa --wsEndpoint` → exit 1（被拒），`--categoryExtensions --wsEndpoint` → exit 0（正常启动）。**本插件的 `--categoryExtensions` attach 日常 Edge 组合在 1.10.1 上合法且已实测可用**。[mcp-options.ts（main，未发布）](https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/src/config/mcp-options.ts) [1.10.1 发布包实测](https://registry.npmjs.org/chrome-devtools-mcp)
 2. **官方文档/issue 的说法与 1.10.1 实际行为不符，以实测为准**。maintainer 在 issue #1173 称 WebSocket 下扩展管理类 CDP 方法会返回 `Method not allowed`；但实测 1.10.1 通过 `--wsEndpoint` attach 日常 Edge 时，`list_extensions`、`reload_extension`、`trigger_extension_action` **全部调用成功**（详见「实地复核」）。官方文档那条 `--categoryExtensions` 只支持 pipe 的说明因此**在 1.10.1 上已过时**。真正的坑在别处：`trigger_extension_action` 会打崩浏览器（见第 4 条与「实地复核」）。[issue #1173](https://github.com/ChromeDevTools/chrome-devtools-mcp/issues/1173#issuecomment-4055872512)
 3. approval 弹窗是**故意设计**且官方明确拒绝提供「记住允许」：issue #825 被 close 为 `not_planned`，官方给的唯一出路是「用非默认 `--user-data-dir` 起浏览器 + `--browserUrl`」，官方原话「In this case, there will be no dialogs」；源码层面弹窗只有 Allow / Cancel / 「Turn off in settings」三个按钮，没有 remember 选项；Chromium 侧追踪 bug 460665929 的原文也只说「require the user to accept incoming connections」，没有任何持久化授权的计划。[issue #825](https://github.com/ChromeDevTools/chrome-devtools-mcp/issues/825#issuecomment-3800124123) [devtools_connection_dialog.cc](https://github.com/chromium/chromium/blob/main/chrome/browser/devtools/devtools_connection_dialog.cc) [crbug 460665929](https://issues.chromium.org/issues/460665929)
-4. **两个被混为一谈的 Chromium 变更，我方基线的表述需要修正（此条经源码+实测双重确认，成立）**：136 变更是「默认 data dir 上忽略调试开关」，而**这个默认目录检查只对 Google Chrome 品牌无条件开启**（`#if BUILDFLAG(GOOGLE_CHROME_BRANDING)`，`remote_debugging_server.cc` L169-174）；approval 模式是 144 的另一个功能（`kDevToolsAcceptDebuggingConnections`）。实测对照：Edge 154 用**一次性 profile + `--remote-debugging-port=9333`** → `/json/version` 返回 **200**（kDefault，无弹窗）；**日常 profile + `edge://inspect` 开关** → `/json/version` 返回 **404**（approval 模式）。结论：Edge 上默认 profile 的调试开关**仍会被接受**（不受 136 限制），但你日常 profile 走的是 approval 模式，弹窗依然存在。[remote_debugging_server.cc](https://github.com/chromium/chromium/blob/main/chrome/browser/devtools/remote_debugging_server.cc)
-5. 同类 DSH 插件里最接近的对照实现是 `dougen/dsh-cdp`：同样是"attach 日常浏览器 + 避免每次弹窗"，但走的是**完全相反**的路线 —— 宿主持有唯一一条常驻 CDP WebSocket + 心跳，把操作挂在回环 HTTP 路由上，**新增 0 个工具 schema**，并把「等待授权时 socket 静默」显式建模成独立状态、复用被挂起的 socket。这两点（连接复用、零工具面）是我方最值得抄的。[dsh-cdp](https://dshmp.com/en/plugins/dsh-cdp)
+4. **两个被混为一谈的 Chromium 变更，本仓库基线的表述需要修正（此条经源码+实测双重确认，成立）**：136 变更是「默认 data dir 上忽略调试开关」，而**这个默认目录检查只对 Google Chrome 品牌无条件开启**（`#if BUILDFLAG(GOOGLE_CHROME_BRANDING)`，`remote_debugging_server.cc` L169-174）；approval 模式是 144 的另一个功能（`kDevToolsAcceptDebuggingConnections`）。实测对照：Edge 154 用**一次性 profile + `--remote-debugging-port=9333`** → `/json/version` 返回 **200**（kDefault，无弹窗）；**日常 profile + `edge://inspect` 开关** → `/json/version` 返回 **404**（approval 模式）。结论：Edge 上默认 profile 的调试开关**仍会被接受**（不受 136 限制），但你日常 profile 走的是 approval 模式，弹窗依然存在。[remote_debugging_server.cc](https://github.com/chromium/chromium/blob/main/chrome/browser/devtools/remote_debugging_server.cc)
+5. 同类 DSH 插件里的另一条对照路线是 `dougen/dsh-cdp`：同样 attach 日常浏览器、同样要处理弹窗，但机制不同 —— 宿主持有唯一一条常驻 CDP WebSocket + 心跳，把操作挂在回环 HTTP 路由上，**新增 0 个工具 schema**，并把「等待授权时 socket 静默」显式建模成独立状态、复用被挂起的 socket。其中连接复用与零工具面两条做法对本插件有直接参考价值。[dsh-cdp](https://dshmp.com/en/plugins/dsh-cdp)
 
 ## 候选对比表
 
@@ -39,7 +39,7 @@
 
 来源：[docs/configuration.md](https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/docs/configuration.md)
 
-`--user-data-dir` 与 `--autoConnect` 一起用时，`BrowserManager` 会自己读 `DevToolsActivePort`，并把它拼成 `ws://127.0.0.1:${port}${rawPath}` —— 与我方包装脚本同一条技术路线，可作为「上游已内建」的证据：
+`--user-data-dir` 与 `--autoConnect` 一起用时，`BrowserManager` 会自己读 `DevToolsActivePort`，并把它拼成 `ws://127.0.0.1:${port}${rawPath}` —— 与本插件包装脚本同一条技术路线，可作为「上游已内建」的证据：
 
 ```ts
 const portPath = path.join(userDataDir, 'DevToolsActivePort');
@@ -99,7 +99,7 @@ filesystemRoot: {
 
 **扩展类 5 个工具**：`install_extension` / `list_extensions` / `reload_extension` / `trigger_extension_action` / `uninstall_extension`，全部带 `requires flag: --categoryExtensions=true`。来源：[docs/tool-reference.md](https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/docs/tool-reference.md)、[src/tools/extensions.ts](https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/src/tools/extensions.ts)
 
-**`sw-N` 句柄的确切性质**（对应我方的已知限制）：它是 MCP server 进程内的自增计数器产物，前缀按 worker 类型区分（`sw`/`dw`/`shw`），注释明说「`Ids are not reused across reconnects, mirroring the page id counter in McpContext`」：
+**`sw-N` 句柄的确切性质**（对应 README 的已知限制）：它是 MCP server 进程内的自增计数器产物，前缀按 worker 类型区分（`sw`/`dw`/`shw`），注释明说「`Ids are not reused across reconnects, mirroring the page id counter in McpContext`」：
 
 ```ts
 const WORKER_ID_PREFIX: Record<WorkerType, string> = {
@@ -118,13 +118,13 @@ static create(type, target) { return new McpWorker(`${workerIdPrefix(type)}-${ne
 **approval/弹窗相关 issue**：
 
 - [#825 Feature request: Allow persisting remote debugging permission approval](https://github.com/ChromeDevTools/chrome-devtools-mcp/issues/825) — 18 个 👍，2026-03-19 被 close，`state_reason: not_planned`。官方回复：`We have been discussing it a lot. There is no simple solution that also would not allow any program on the machine to easily access your data in Chrome. For now, we recommend to have longer connection sessions to avoid the reconnect dialog.` 以及绕过办法 `--remote-debugging-port=9222 --user-data-dir=/path/to/profile` + `--browserUrl=http://127.0.0.1:9222` → `In this case, there will be no dialogs.`（[comment](https://github.com/ChromeDevTools/chrome-devtools-mcp/issues/825#issuecomment-3800124123)）
-- [#1794 “Allow remote debugging?” popup can trigger multiple times and stack up](https://github.com/ChromeDevTools/chrome-devtools-mcp/issues/1794) — 仍 open。报告里直接点名「clients may poll `:9222` trying to connect until it's ready, or multiple subprocesses may try to connect in parallel」，每次重连各弹一个框。这条对我方 TCP 探活是**利好**：只做 TCP connect 不触发弹窗，做 CDP 握手才会。
+- [#1794 “Allow remote debugging?” popup can trigger multiple times and stack up](https://github.com/ChromeDevTools/chrome-devtools-mcp/issues/1794) — 仍 open。报告里直接点名「clients may poll `:9222` trying to connect until it's ready, or multiple subprocesses may try to connect in parallel」，每次重连各弹一个框。这条对本插件的 TCP 探活是**利好**：只做 TCP connect 不触发弹窗，做 CDP 握手才会。
 - [#1173 支持 attach 模式下的扩展 page / SW 可见性](https://github.com/ChromeDevTools/chrome-devtools-mcp/issues/1173) — 2026-04-21 close 为 completed；过程说明了为何 attach 模式拿不到扩展工具（见 TL;DR 第 2 条）。
 - 社区绕过工具（第三方，非官方）：[dev-newb/yes-dev](https://github.com/dev-newb/yes-dev)（Windows/macOS，UI Automation / Accessibility 点 Allow）、[neronlux/yes-dev-linux](https://github.com/neronlux/yes-dev-linux)（Linux）。两者都明确声明「这不等价于持久化授权，它会批准任何本机进程」。
-- 弹窗期间「握手被挂住」有第三方的代码级旁证：[vercel-labs/agent-browser commit 9ef6c1e](https://github.com/vercel-labs/agent-browser/commit/9ef6c1e53627b244c9a3151f4a9af545fd3d9cdf)（2026-09-29）的提交信息原文：`Chrome 144+ holds the DevToolsActivePort WebSocket handshake while it shows the remote-debugging permission prompt. The 2s verify timeout expired first, so auto-connect fell back to HTTP discovery, which triggered another prompt and then removed DevToolsActivePort from a Chrome that was still waiting. Keep the handshake open for 30s.`（Fixes [#1365](https://github.com/vercel-labs/agent-browser/issues/1365)）—— 和我方观察到的「零字节挂起」完全一致，而且它顺带证明了一个坑：**超时后回退到 HTTP 发现会再弹一次框**，所以我方宁可挂住也不要重试。
+- 弹窗期间「握手被挂住」有第三方的代码级旁证：[vercel-labs/agent-browser commit 9ef6c1e](https://github.com/vercel-labs/agent-browser/commit/9ef6c1e53627b244c9a3151f4a9af545fd3d9cdf)（2026-09-29）的提交信息原文：`Chrome 144+ holds the DevToolsActivePort WebSocket handshake while it shows the remote-debugging permission prompt. The 2s verify timeout expired first, so auto-connect fell back to HTTP discovery, which triggered another prompt and then removed DevToolsActivePort from a Chrome that was still waiting. Keep the handshake open for 30s.`（Fixes [#1365](https://github.com/vercel-labs/agent-browser/issues/1365)）—— 和本插件观察到的「零字节挂起」完全一致，而且它顺带证明了一个坑：**超时后回退到 HTTP 发现会再弹一次框**，所以本插件宁可挂住也不要重试。
 - 多客户端共享一条桥的做法（用于规避「每连接一次授权」）：[QwenLM/qwen-code#8740](https://github.com/QwenLM/qwen-code/pull/8740)「share one Chrome bridge across sessions via multi-client /cdp tunnel」（closed 未合并；同仓库的 [#8737](https://github.com/QwenLM/qwen-code/issues/8737) 记录了 `--autoConnect` 每次会话都重新弹框）、[sblattj/cdp-toolkit#9](https://github.com/sblattj/cdp-toolkit/pull/9)「Reach a Chrome that serves only the browser WebSocket」（open；作者原话：`A Chrome whose remote debugging was enabled at runtime via the chrome://inspect/#remote-debugging toggle serves neither: /json/* returns 404 and /devtools/page/<id> ...`，解法是只连 `/devtools/browser/<uuid>` 再用 `Target.attachToTarget{flatten:true}` 在同一个 socket 上复用所有 target）。
 
-**Edge 专用配方（Microsoft 官方）**：`--autoConnect` 配合 `--user-data-dir=%LocalAppData%\Microsoft\Edge\User Data`，并说明 `the server reads the DevToolsActivePort file from that directory to discover the WebSocket endpoint of the running browser and connects to it` —— 与我方 `connect.mjs` 同一条技术路线，有官方背书。Edge 侧的授权入口是 `edge://inspect` 的 **Remote debugging** 页里勾选 `Allow remote debugging for this browser instance`。[MS Learn: devtools-mcp-server](https://learn.microsoft.com/en-us/microsoft-edge/web-platform/devtools-mcp-server)
+**Edge 专用配方（Microsoft 官方）**：`--autoConnect` 配合 `--user-data-dir=%LocalAppData%\Microsoft\Edge\User Data`，并说明 `the server reads the DevToolsActivePort file from that directory to discover the WebSocket endpoint of the running browser and connects to it` —— 与本插件的 `connect.mjs` 同一条技术路线，有官方背书。Edge 侧的授权入口是 `edge://inspect` 的 **Remote debugging** 页里勾选 `Allow remote debugging for this browser instance`。[MS Learn: devtools-mcp-server](https://learn.microsoft.com/en-us/microsoft-edge/web-platform/devtools-mcp-server)
 
 **官方文档页**（配合上下文）：[Debug Chrome extensions with AI agents](https://developer.chrome.com/docs/devtools/agents/extensions)（要求先开 `--categoryExtensions`，例子全是 launch 场景）、[Auto-connect](https://developer.chrome.com/docs/devtools/agents/use-cases/auto-connect)、[Configuration](https://developer.chrome.com/docs/devtools/agents/get-started/configuration)。
 
@@ -150,7 +150,7 @@ static create(type, target) { return new McpWorker(`${workerIdPrefix(type)}-${ne
 
 - browser-use 的本地 MCP（`uvx --from 'browser-use[cli]' browser-use --mcp`）文档只列 `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `BROWSER_USE_HEADLESS` / `BROWSER_USE_DISABLE_SECURITY`，**没有任何 attach/CDP 参数**；库层有 `Browser(cdp_url=...)`、`from_system_chrome()`，MCP 层没有。[browser-use MCP docs](https://docs.browser-use.com/open-source/customize/integrations/mcp-server.md)
 - Browserbase 的 MCP 仓库 **已归档**（README 首行 `# Archived`），走云端 session；npm `@browserbasehq/mcp-server-browserbase` 的 deprecated 字段写着 `This package has moved to @browserbasehq/mcp`。现行 `@browserbasehq/mcp@3.0.0` 含 Stagehand，同样**不能 attach 本机浏览器**。[archived README](https://github.com/browserbase/mcp-server-browserbase/blob/main/README.md)、[npm](https://registry.npmjs.org/@browserbasehq/mcp/latest)
-- 结论：这一族对本场景（调试我方日常浏览器里的扩展）没有可用价值。
+- 结论：这一族对本场景（调试日常浏览器里的扩展）没有可用价值。
 
 ### 扩展桥类：hangwin/mcp-chrome
 
@@ -205,7 +205,7 @@ edge.exe --remote-debugging-port=9222 --user-data-dir=remote-debug-profile
 
 **JetBrains（WebStorm 等）**：官方有「Debug Chrome extensions」章节，但流程是「用 `Attach to Node.js/Chrome` 配置 + 用自定义 user data profile 起 Chrome（`--remote-debugging-port=<port> --user-data-dir=<your profile>`）+ 手动加载 unpacked 扩展」。同样不支持 attach 到日常默认 profile。[JetBrains: debugging JavaScript in Chrome](https://www.jetbrains.com/help/webstorm/debugging-javascript-in-chrome.html)
 
-**结论**：主流 IDE 的调试路径与 Chrome 136 的安全收紧方向一致 —— 都要求独立 profile，因此都不能替代「attach 你正在用的浏览器」这个需求。这也说明我方的场景在官方工具链里没有现成答案，只有 `chrome-devtools-mcp --autoConnect` 这一条（靠用户在 `chrome://inspect` 主动授权）是官方认可的例外。
+**结论**：主流 IDE 的调试路径与 Chrome 136 的安全收紧方向一致 —— 都要求独立 profile，因此都不能替代「attach 你正在用的浏览器」这个需求。这也说明这个场景在官方工具链里没有现成答案，只有 `chrome-devtools-mcp --autoConnect` 这一条（靠用户在 `chrome://inspect` 主动授权）是官方认可的例外。
 
 **chrome-remote-interface（cyrus-and/chrome-remote-interface，非 MCP，是一个库）**：
 
@@ -215,7 +215,7 @@ edge.exe --remote-debugging-port=9222 --user-data-dir=remote-debug-profile
 - 注意一条限制：`at most one connection can be established to the same target`。
 - README 里**没有**提到 `DevToolsActivePort`（发现端口仍需自己做，和 chrome-devtools-mcp 的 `--autoConnect` 不同）。
 
-来源：[chrome-remote-interface README](https://github.com/cyrus-and/chrome-remote-interface/blob/master/README.md)。对我方的意义：如果哪天要自己建唯一连接并复用会话，CRI 是够用的底座；但要注意它的默认发现路径是 `/json/list`，而 approval 模式下该端点会 404（见上文源码），所以必须走 `target: 'ws://...'` 直连 WebSocket。
+来源：[chrome-remote-interface README](https://github.com/cyrus-and/chrome-remote-interface/blob/master/README.md)。对本插件的意义：如果哪天要自己建唯一连接并复用会话，CRI 是够用的底座；但要注意它的默认发现路径是 `/json/list`，而 approval 模式下该端点会 404（见上文源码），所以必须走 `target: 'ws://...'` 直连 WebSocket。
 
 
 ## Chromium approval 模式现状（源码核实）
@@ -254,7 +254,7 @@ enum RemoteDebuggingServerMode {
 
 来源：[chrome/browser/devtools/remote_debugging_server.cc](https://github.com/chromium/chromium/blob/main/chrome/browser/devtools/remote_debugging_server.cc)。非 Google 品牌的 Chromium 构建（含 Edge）**默认不做**默认目录拒绝，只有测试开关 `EnableDefaultUserDataDirCheckForTesting()` 才打开。这是源码推断，**微软官方文档既没确认也没否认**，需要实测。
 
-**另一个必须分清的点：136 的变更里没有任何「批准」对话框。** approval 是 M144 的独立功能，官方博文原话 `every time the Chrome DevTools MCP server requests a remote debugging session, Chrome will show a dialog to the user and ask for their permission`。[developer.chrome.com/blog/chrome-devtools-mcp-debug-your-browser-session](https://developer.chrome.com/blog/chrome-devtools-mcp-debug-your-browser-session)。我方基线里「Chromium 136+ approval 模式」的表述应拆成这两件事。
+**另一个必须分清的点：136 的变更里没有任何「批准」对话框。** approval 是 M144 的独立功能，官方博文原话 `every time the Chrome DevTools MCP server requests a remote debugging session, Chrome will show a dialog to the user and ask for their permission`。[developer.chrome.com/blog/chrome-devtools-mcp-debug-your-browser-session](https://developer.chrome.com/blog/chrome-devtools-mcp-debug-your-browser-session)。本仓库基线里「Chromium 136+ approval 模式」的表述应拆成这两件事。
 
 **approval 模式从哪来**：由偏好 `devtools.remote_debugging.user-enabled` 触发（即用户在 `chrome://inspect` 打开开关），另有管理员偏好 `devtools.remote_debugging.allowed`；两者在 `remote_debugging_server.cc` 中被读取，并受 feature `kDevToolsAcceptDebuggingConnections` 门控：
 
@@ -302,7 +302,7 @@ if (mode_ == DevToolsAgentHost::RemoteDebuggingServerMode::kWithApprovalOnly) {
 }
 ```
 
-`OnJsonRequest` / `OnDiscoveryPageRequest` / `OnFrontendResourceRequest` 在 approval 模式下都是 `Send404(connection_id)`。来源：[content/browser/devtools/devtools_http_handler.cc](https://github.com/chromium/chromium/blob/main/content/browser/devtools/devtools_http_handler.cc) —— 这解释了两件事：Playwright MCP issue #1757 里 `/json` 404，以及我方观察到的「握手被挂起、返回零字节不报错」。
+`OnJsonRequest` / `OnDiscoveryPageRequest` / `OnFrontendResourceRequest` 在 approval 模式下都是 `Send404(connection_id)`。来源：[content/browser/devtools/devtools_http_handler.cc](https://github.com/chromium/chromium/blob/main/content/browser/devtools/devtools_http_handler.cc) —— 这解释了两件事：Playwright MCP issue #1757 里 `/json` 404，以及本插件观察到的「握手被挂起、返回零字节不报错」。
 
 **弹窗本身没有「记住允许」**：`DevToolsConnectionDialog` 只有三个动作 —— Allow（OK 按钮）、Cancel、以及一个跳转到 `chrome://inspect#remote-debugging` 的额外按钮；`AcceptDebugging` 每次连接都会 `DevToolsConnectionDialog::Show(last_active, std::move(wrapped_callback))`。运行时还有一条 infobar（`DevToolsRemoteServerInfobarDelegate`）表示当前有活跃调试连接。
 
@@ -357,29 +357,29 @@ base::WriteFile(output_directory.Append(kDevToolsActivePortFileName), port_targe
 
 补充：该仓库 README 的目录列了「Chrome 侧准备 / 面板使用 / 验证与排查」三节，但正文里没有对应内容（README 全长仅 4255 字节，正文到「开发循环」结束）——也就是说它**完全没有记录** approval 弹窗、默认 profile 限制、扩展调试这三件事。与它对比时不要假设这些设计存在。[README.md](https://github.com/xiaobai2017666/dsh-chrome-cdp/blob/master/README.md)
 
-## 可借鉴点清单（按对我方的收益/可行性排序）
+## 可借鉴点清单（按对本插件的收益/可行性排序）
 
 ~~**先做的一件事（收益最高、成本最低）**：在 Edge 上用**默认 profile** 直接 `msedge.exe --remote-debugging-port=9222`，然后只做一次 WebSocket 握手，看是否弹框……~~
 
 **已完成（见「实地复核」E）**：Edge 默认 profile 上 `--remote-debugging-port` 确实**不被忽略**（136 限制因非 Google 品牌而不生效），但日常 profile 走 `edge://inspect` 仍是 approval 模式、弹窗照旧。所以 connect.mjs 的整套 approval 规避设计**必须保留**，不能省。下面 10 条清单继续适用。
 
-1. **把「等待授权」建模成独立状态，并复用被挂起的 socket**（收益高、可行性高）。`dsh-cdp` 的原文：「浏览器等待授权时，socket 既不 `open` 也不 `error`，只是沉默。插件给握手设了期限，把这段沉默归类成该状态。被挂起的 socket 会保留并复用：你点 Allow 后直接接管，不会另开连接（那会弹第二个授权框）。」这正是我方裸 WebSocket 挂起现象的独立佐证；即使我方坚持「只做 TCP 转发」，也应把"转发通道建立后握手无响应"与"浏览器没开调试端口"区分成两个不同状态返回给上层，避免上层重试放大弹窗。[dsh-cdp](https://dshmp.com/en/plugins/dsh-cdp)
+1. **把「等待授权」建模成独立状态，并复用被挂起的 socket**（收益高、可行性高）。`dsh-cdp` 的原文：「浏览器等待授权时，socket 既不 `open` 也不 `error`，只是沉默。插件给握手设了期限，把这段沉默归类成该状态。被挂起的 socket 会保留并复用：你点 Allow 后直接接管，不会另开连接（那会弹第二个授权框）。」这正是本插件裸 WebSocket 挂起现象的独立佐证；即使本插件坚持「只做 TCP 转发」，也应把"转发通道建立后握手无响应"与"浏览器没开调试端口"区分成两个不同状态返回给上层，避免上层重试放大弹窗。[dsh-cdp](https://dshmp.com/en/plugins/dsh-cdp)
 2. **连接复用 / 唯一长连接，多会话在同一 socket 上用 flat session**（收益高、可行性中）。`dsh-cdp`、`dsh-browser-attach`、chrome-devtools-mcp 的 `--autoConnect` 文档都以「一条常驻连接」为核心；上游 issue #1794 的诉求也正是这个方向。具体技术做法已有开源先例：只连 `/devtools/browser/<uuid>`，再用 `Target.attachToTarget{flatten:true}` 的 `sessionId` 在同一 WebSocket 上复用所有 target —— 见 [sblattj/cdp-toolkit#9](https://github.com/sblattj/cdp-toolkit/pull/9)（理由是 `chrome://inspect` 开关打开后 `/json/*` 返回 404，只能走 browser socket）与 [QwenLM/qwen-code#8740](https://github.com/QwenLM/qwen-code/pull/8740)（daemon 的 `/cdp` 隧道对多客户端共享一条 Chrome 桥）。chrome-remote-interface 也支持 `sessionId`（事件名形如 `<domain>.<method>.<sessionId>`）。[issue #1794](https://github.com/ChromeDevTools/chrome-devtools-mcp/issues/1794)、[CRI README](https://github.com/cyrus-and/chrome-remote-interface/blob/master/README.md)
-3. **零新增工具面：把能力挂在回环 HTTP 路由 + skill 上**（收益高、可行性高，取决于产品形态）。`dsh-cdp` 明确「新增的模型可见工具 schema 是 0 个」，用法由随插件注册的 `browser-cdp` skill 承载、按需加载。对照 `xiaobai2017666/dsh-chrome-cdp` 的 11 工具 ≈ 2K tokens 常驻。我方目前把 chrome-devtools-mcp 整个工具面塞进上下文，这是最大且最容易改的一项。[dsh-cdp](https://dshmp.com/en/plugins/dsh-cdp)、[dsh-chrome-cdp README](https://github.com/xiaobai2017666/dsh-chrome-cdp)
-4. **工具分组可整组关闭，关闭即零 schema 占用**（收益中、可行性高）。`xiaobai2017666/dsh-chrome-cdp` 的做法（preset 里 `groups.<name>: false` → 不注册）比"注册了再隐藏"干净，且顺带白拿一个错误契约（见第 6 条）；上游 `chrome-devtools-mcp` 的 `--categoryXxx` / `--slim` 是同类思路但粒度更粗（`--slim` 会把扩展工具一起砍掉，本场景不能用）。~~attach 模式下扩展分类被硬禁~~ **该硬禁只在上游 main（未发布）存在，1.10.1 上不成立**（见「实地复核」A），所以「按需注册」是我方唯一可用的裁剪手段。[dsh-chrome-cdp](https://github.com/xiaobai2017666/dsh-chrome-cdp)、[categories.ts](https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/src/tools/categories.ts)
-5. **路径白名单**（收益中、可行性高）。chrome-devtools-mcp 的 `--workspace` = `--filesystemRoot`（可重复、默认 OS 临时目录），并已把 `--allowUnrestrictedPaths` 标为 deprecated 指向 `--workspace=/`。我方的 `--workspace <dist>` 用法与官方语义一致，但要注意默认值本来就是「临时目录」而不是「无限制」，别把它当成开启权限的开关。[mcp-options.ts](https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/src/config/mcp-options.ts)
+3. **零新增工具面：把能力挂在回环 HTTP 路由 + skill 上**（收益高、可行性高，取决于产品形态）。`dsh-cdp` 明确「新增的模型可见工具 schema 是 0 个」，用法由随插件注册的 `browser-cdp` skill 承载、按需加载。对照 `xiaobai2017666/dsh-chrome-cdp` 的 11 工具 ≈ 2K tokens 常驻。本插件目前把 chrome-devtools-mcp 整个工具面塞进上下文，这是最大且最容易改的一项。[dsh-cdp](https://dshmp.com/en/plugins/dsh-cdp)、[dsh-chrome-cdp README](https://github.com/xiaobai2017666/dsh-chrome-cdp)
+4. **工具分组可整组关闭，关闭即零 schema 占用**（收益中、可行性高）。`xiaobai2017666/dsh-chrome-cdp` 的做法（preset 里 `groups.<name>: false` → 不注册）比"注册了再隐藏"干净，且顺带白拿一个错误契约（见第 6 条）；上游 `chrome-devtools-mcp` 的 `--categoryXxx` / `--slim` 是同类思路但粒度更粗（`--slim` 会把扩展工具一起砍掉，本场景不能用）。~~attach 模式下扩展分类被硬禁~~ **该硬禁只在上游 main（未发布）存在，1.10.1 上不成立**（见「实地复核」A），所以「按需注册」是本场景唯一可用的裁剪手段。[dsh-chrome-cdp](https://github.com/xiaobai2017666/dsh-chrome-cdp)、[categories.ts](https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/src/tools/categories.ts)
+5. **路径白名单**（收益中、可行性高）。chrome-devtools-mcp 的 `--workspace` = `--filesystemRoot`（可重复、默认 OS 临时目录），并已把 `--allowUnrestrictedPaths` 标为 deprecated 指向 `--workspace=/`。本插件的 `--workspace <dist>` 用法与官方语义一致，但要注意默认值本来就是「临时目录」而不是「无限制」，别把它当成开启权限的开关。[mcp-options.ts](https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/src/config/mcp-options.ts)
 6. **错误自愈：结构化 `{error, hint}` 输出 + 声明可选 error 字段**（收益中、可行性高）。`xiaobai2017666/dsh-chrome-cdp` 让所有工具的输出 schema 都声明可选 `error`/`hint`，避免错误分支被 `additionalProperties: false` 判成 invalid output。这类"错误也是契约的一部分"能显著减少 agent 的重试噪声。[dsh-chrome-cdp README](https://github.com/xiaobai2017666/dsh-chrome-cdp)
 7. **sw-N 句柄问题的可借鉴做法**（收益中、可行性中）。上游把 worker 句柄做成进程内自增（`sw-1`，重连不复用），并且 `list_pages` 的描述会随 `categoryExtensions` 变；它**不解决**「MV3 SW 睡着后不在列表里」——这是浏览器侧 target 生命周期问题，任何 MCP 都无法凭空列出睡着的 SW。真正可用的手段是浏览器级 `ServiceWorker.startWorker`（官方协议里存在，但没有 MCP 暴露它）。可行的借鉴是：列表接口对「已知但当前不在线的 SW」保留条目并附上唤醒方式，而不是让 agent 以为它不存在。[McpWorker.ts](https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/src/McpWorker.ts)、[tools/pages.ts](https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/src/tools/pages.ts)、[browser_protocol.json](https://github.com/ChromeDevTools/devtools-protocol/blob/master/json/browser_protocol.json)
 8. **只做 TCP 探活不建 CDP 连接，是对的选择**（收益：确认既有设计，无需改动）。[issue #1794](https://github.com/ChromeDevTools/chrome-devtools-mcp/issues/1794) 说明轮询式 CDP 连接会叠加弹窗；TCP 层探测不触发 approval。更强的旁证是 [vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser/commit/9ef6c1e53627b244c9a3151f4a9af545fd3d9cdf)：它的 2 秒 verify 超时后**回退到 HTTP 发现，结果又触发了一个弹窗**，还把仍处在等待状态的 Chrome 的 `DevToolsActivePort` 文件删掉了。结论：握手挂住时**不要重试、不要回退到 HTTP 发现**，保持连接或直接把这个状态报给上层。可以把这个理由写进 README，避免后来者"顺手加个 /json 探活"。
 9. **审计与状态落盘**（收益中、可行性高）。`dsh-browser-attach` 把 `audit.jsonl` / `state.json` / `daemon.pid` 写在 `~/.config/browserctl/`。对"驱动用户日常浏览器"这类高风险能力，可回溯的审计记录值得照抄。[dsh-browser-attach](https://github.com/JackAIStudio/dsh-browser-attach)
-10. **上游的 design-principles 文档本身可借鉴**（收益低-中）。`Token-Optimized`（"LCP was 3.2s" 好过 50k 行 JSON）、`Reference over Value`（重资产只回文件路径）、`Self-Healing Errors` 三条可以直接作为我方工具设计的检查表。[design-principles.md](https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/docs/design-principles.md)
+10. **上游的 design-principles 文档本身可借鉴**（收益低-中）。`Token-Optimized`（"LCP was 3.2s" 好过 50k 行 JSON）、`Reference over Value`（重资产只回文件路径）、`Self-Healing Errors` 三条可以直接作为本插件工具设计的检查表。[design-principles.md](https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/docs/design-principles.md)
 
 ## 亮点汇总（如果只带走几条）
 
 按「对本场景的杠杆」排序，前 4 条是真正值得动手的：
 
-1. **握手挂住 = 独立状态，且复用被挂起的 socket**（第 1 条）。最贴合我方痛点：approval 模式下 socket 既不 `open` 也不 `error`，把它与「端口没开」区分开、并且**不重试、不回退 `/json`**。反面教材（第 8 条）已经踩过：超时后回退 HTTP 发现会**再弹一次**，还会删掉仍在等待的 `DevToolsActivePort`。
-2. **零新增工具面**（第 3 条）：能力挂回环 HTTP 路由 + 一个按需加载的 skill，把常驻 schema 从 28 KB 压到 0。我方目前是这次调研里上下文成本最高的一项。
+1. **握手挂住 = 独立状态，且复用被挂起的 socket**（第 1 条）。最贴合本场景的痛点：approval 模式下 socket 既不 `open` 也不 `error`，把它与「端口没开」区分开、并且**不重试、不回退 `/json`**。反面教材（第 8 条）已经踩过：超时后回退 HTTP 发现会**再弹一次**，还会删掉仍在等待的 `DevToolsActivePort`。
+2. **零新增工具面**（第 3 条）：能力挂回环 HTTP 路由 + 一个按需加载的 skill，把常驻 schema 从 28 KB 压到 0。本插件目前是这次调研里上下文成本最高的一项。
 3. **分组开关：不注册 = 零 schema 占用**（第 4 条，`xiaobai2017666/dsh-chrome-cdp` 的 `groups.<name>: false`）。比"注册了再隐藏"干净；`--slim` 不能用于本场景（会连扩展工具一起砍掉）。
 4. **结构化 `{error, hint}` 输出 + 在 output schema 里声明可选 `error` 字段**（第 6 条，同上仓库）。错误分支返回结构化对象，避免被 `additionalProperties: false` 判成 invalid output；"错误也是契约的一部分"能显著减少 agent 重试噪声。**这条与第 3 条是同一个仓库白拿的两件事**，互相独立、都可直接照抄。
 5. **`--workspace` 是 `--filesystemRoot` 的别名**（第 5 条）：默认值就是 OS 临时目录，不是"无限制"，别当成权限开关。
@@ -394,8 +394,8 @@ base::WriteFile(output_directory.Append(kDevToolsActivePortFileName), port_targe
 
 ## 未解问题
 
-1. ~~**我方实际锁的 `chrome-devtools-mcp` 版本未知**。~~ **已实测解决（见「实地复核」A）**：锁的是发布版 1.10.1，其中**不存在** `CONFLICTING_ARGS`，`--categoryExtensions` + `--wsEndpoint` 合法可用。
-2. ~~**`trigger_extension_action` 真正的失败模式**：官方说返回 `Method not allowed`，我方实测是「Edge 崩溃」。两者不一致，未经证实。~~ **已实测解决（见「实地复核」C）**：有头 + WS attach 下确实 `Target closed` + 进程全灭 + 10.4 MB dump；headless 下则不崩。README 的屏蔽结论成立，且「旧版才崩」的假设不成立。
+1. ~~**本插件实际锁的 `chrome-devtools-mcp` 版本未知**。~~ **已实测解决（见「实地复核」A）**：锁的是发布版 1.10.1，其中**不存在** `CONFLICTING_ARGS`，`--categoryExtensions` + `--wsEndpoint` 合法可用。
+2. ~~**`trigger_extension_action` 真正的失败模式**：官方说返回 `Method not allowed`，本仓库实测是「Edge 崩溃」。两者不一致，未经证实。~~ **已实测解决（见「实地复核」C）**：有头 + WS attach 下确实 `Target closed` + 进程全灭 + 10.4 MB dump；headless 下则不崩。README 的屏蔽结论成立，且「旧版才崩」的假设不成立。
 3. ~~**「attach 日常浏览器」与「用扩展工具」目前无法兼得**（上游硬限制）~~ **已实测推翻（见「实地复核」A/B）**：1.10.1 上二者兼得，扩展工具实测可调用。
 4. **Edge 是否也执行 Chrome 136 的默认 profile 限制**：微软官方文档没写，但源码里该检查被 `#if BUILDFLAG(GOOGLE_CHROME_BRANDING)` 限定为非 Google 品牌默认关闭。这是**源码推断**，需要实测（见「可借鉴点」开头那条）。同时未经证实的是：Edge 是否对每条新 WebSocket 弹批准框、是否存在微软侧差异。
 5. **`--remote-allow-origins` 与 approval 弹窗无关**：本调研只从源码分层推断，未找到官方文档把两者区分开的表述，标**未经证实**。
@@ -416,7 +416,7 @@ base::WriteFile(output_directory.Append(kDevToolsActivePortFileName), port_targe
 - 行为对照（同一份发布版 1.10.1 入口）：
   - `--categoryPwa --wsEndpoint ws://…` → **exit 1**，stderr：`Arguments categoryPwa and wsEndpoint are mutually exclusive`
   - `--categoryExtensions --wsEndpoint ws://…` → **exit 0**，服务正常启动并打印免责声明
-- 因此文档里那句「`--categoryExtensions` 目前只支持 pipe 连接」在 **1.10.1 上已过时**；不要据此改我方的参数组合。
+- 因此文档里那句「`--categoryExtensions` 目前只支持 pipe 连接」在 **1.10.1 上已过时**；不要据此改本插件的参数组合。
 
 ### B. 扩展工具在 WS attach 下真的能用（与 maintainer 说法相反）
 
@@ -470,6 +470,6 @@ EXT TOOLS install_extension, list_extensions, reload_extension, uninstall_extens
 
 ### F. 架构层的取舍结论
 
-- **扩展桥类路线（BrowserRig、pi-control-chrome、dsh-bib、hangwin/mcp-chrome 等）不适用于本场景**：它们的桥扩展用 `chrome.debugger.attach` 只能调试**自己**能访问的 tab，Chrome 官方明确「Attaching to an extension background page is only possible when the `--silent-debugger-extension-api` switch is used」，且对 `chrome-extension://` 的**其它扩展**页面会报 `Cannot access a chrome-extension:// URL of different extension`。而本场景要调试的是**自己的扩展**（BiliScript）的 SW/扩展页，走 browser 级 CDP attach 才是正路（BiliScript 自己的 SW 已实际进入，见「实地复核」B）—— 我方路线正确。
-- **`dougen/dsh-cdp` 的两点仍是最值得借鉴的**：唯一常驻连接避免重复弹窗、以及「等待授权」独立状态 + 复用被挂起的 socket。但它**不覆盖扩展调试**（`console`/`network` 都「accepted but capture nothing」，也没有扩展工具），所以它可作为「连接层」的参考，不能作为本场景的替代品。
+- **扩展桥类路线（BrowserRig、pi-control-chrome、dsh-bib、hangwin/mcp-chrome 等）不适用于本场景**：它们的桥扩展用 `chrome.debugger.attach` 只能调试**自己**能访问的 tab，Chrome 官方明确「Attaching to an extension background page is only possible when the `--silent-debugger-extension-api` switch is used」，且对 `chrome-extension://` 的**其它扩展**页面会报 `Cannot access a chrome-extension:// URL of different extension`。而本场景要调试的是**自己的扩展**（BiliScript）的 SW/扩展页，走 browser 级 CDP attach 才是正路（BiliScript 自己的 SW 已实际进入，见「实地复核」B）—— 本插件的路线正确。
+- **`dougen/dsh-cdp` 有两条做法可借鉴**：唯一常驻连接避免重复弹窗、以及「等待授权」独立状态 + 复用被挂起的 socket。但它的工具面**不含扩展调试**（`console`/`network` 都「accepted but capture nothing」，也没有扩展工具），所以只在连接层有参考价值，不覆盖本场景。
 - **浏览器级扩展管理只有 `Extensions` domain**：`getExtensions` 只覆盖 **unpacked** 扩展，且 domain 里**没有 reload 命令**——`reload_extension` 是靠重新 `loadUnpacked(extension.path)` 实现的（源码已核）。`ServiceWorker.startWorker` 是唤醒睡着 SW 的正规手段，但无任何 MCP 暴露。
