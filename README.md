@@ -19,6 +19,11 @@
 端点缺席时不会让激活失败（`failOnStartupError: false` + `reconnect`），所以可以先把这一行打开，
 之后再去 Edge 里翻开关，它会自己连上。
 
+**怎么确认真的生效**：看 `Tool.listTools` 里有没有 `mcp__cdp__*`
+（`cordis_inspect_query`：`platform: host`、`provider: Tool`、`method: listTools`）。
+GUI 里那一行显示 `fiberPhase: active` **不能**作为依据 —— 端点缺席时它同样是 active，
+只是每次调用都会失败。
+
 ## 前置条件
 
 在 Edge 打开 `edge://inspect`，勾上 **"Allow remote debugging for this browser instance"**。
@@ -29,6 +34,11 @@
 - **guid 每次重开开关都会变**，所以每次启动都必须重读这个文件（不能缓存）；
 - 关掉开关后文件**不会删除**，只是端口不再监听 —— 所以「文件存在」不等于「能连」；
 - 用 `--remote-debugging-port=<p>` 启动的 Edge **不写**这个文件。
+
+**为什么不能干脆自己用 `--remote-debugging-port` 启动日常 Edge**：Chromium 136 起，
+`--remote-debugging-port` / `--remote-debugging-pipe` 对**默认** user data dir 会被直接忽略
+（防的是拿调试端口偷 cookie）。Linux 上还有 `CHROME_CONFIG_HOME` 一类的绕法，Windows 上没有。
+所以日常 profile 只剩 `edge://inspect` 这一条路，也就必然要吃 approval 模式的弹窗。
 
 ## `connect.mjs` 环境变量
 
@@ -57,6 +67,11 @@
 服务器就起在 9222 并写 `DevToolsActivePort`，但**每一条新的 WebSocket 连接都会弹一次
 「是否允许远程调试？」的模态框**，用户手点「允许」之后这条连接才握手成功。Chromium 没有
 「记住」选项（社区 issue 一直在挂），也没有配置项可以跳过。
+
+这个弹窗的表现形式很容易误判：被它挂起期间，**裸的 WebSocket 升级握手会返回零字节且不报错**
+——不是 403、不是超时、也不是协议不匹配，看起来就像端口是死的。多带一个 `Origin:` 头才会拿到
+`403`。两种情况都只是请求卡在等你点「允许」。所以包装脚本把试探止步于 TCP：连接 + 立刻关闭
+不触发弹窗，发 HTTP 升级请求才会（均已实测）。
 
 但 `chrome-devtools-mcp` 是**惰性连接**的：浏览器上下文以 thunk 传给工具处理器
 （`new ToolHandler(tool, args, () => this.#getContext(), mutex)`，见 `index.js`），
@@ -113,6 +128,9 @@ node tools\mcp-probe.mjs node D:\DSH\dsh-cdp\connect.mjs --no-usage-statistics -
 - `list_pages` 里的 `sw-N` 是**会话内句柄**：每次 MCP 启动都会重新编号，不要把 `sw-2` 记到下一轮。
 - MV3 的 Service Worker 睡着时**不在 `list_pages` 里**，要先用页面里的操作把它唤醒。
 - 只有 Edge 里勾上那个开关时可用；关掉开关后 `connect.mjs` 会以 exit 1 报「DevToolsActivePort 是旧的」。
+- **不要给 `chrome-devtools-mcp` 加 `--slim`**：它会把扩展类工具整个砍掉，这一行就没意义了。
+- 上下文成本：打开这一行后工具目录 41 → 77 个，多出的 36 个（33 个 `mcp__cdp__*` + 3 个通用
+  MCP resource 工具）schema 合计约 26 KB，每次请求都要带。嫌重就关掉它。
 
 ## 测试
 
