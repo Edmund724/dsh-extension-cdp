@@ -13,7 +13,12 @@
         serverName: chrome-devtools-mcp
         command: !!js process.execPath
         args:
-          - 'D:\DSH\dsh-extension-cdp\connect.mjs'
+          # Do not hardcode a local path here. This row's `baseUrl` is the
+          # *profile* directory (the root include anchors baseUrl there), so
+          # resolve our own entry through the profile's node_modules instead.
+          # The official dsh-web-app bundle uses the same idiom (the
+          # skill-filesystem row resolves a package-relative path this way).
+          - !!js process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('dsh-extension-cdp/connect.mjs')
           - '--no-usage-statistics'
           - '--categoryExtensions'
           # --workspace only gates tools that take a filesystem path

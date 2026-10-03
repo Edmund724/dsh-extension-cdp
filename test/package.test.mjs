@@ -148,7 +148,14 @@ test('cordis.patch.yml: 解析出的行与 config 正确', () => {
   assert.equal(row.config.toolCallTimeoutMs, 300000);
   assert.equal(row.config.reconnect.maxAttempts, 1000);
   assert.equal(row.config.reconnect.maxDelayMs, 30000);
-  assert.equal(row.config.args[0], 'D:\\DSH\\dsh-extension-cdp\\connect.mjs');
+  // args[0] 不许写死本机路径（公开仓库要能克隆即用）。这一行的 `baseUrl` 是 profile
+  // 目录（root include 锚在那里），所以用 createRequire(baseUrl).resolve 解析本包入口 ——
+  // 官方 dsh-web-app 的 skill-filesystem 行同款写法，2026-10-03 在本机实机验证过。
+  assert.match(
+    String(row.config.args[0].__jsExpr),
+    /createRequire\(baseUrl\)\.resolve\('dsh-extension-cdp\/connect\.mjs'\)/,
+    'args[0] 必须用 baseUrl 相对解析本包入口，不要写死绝对路径',
+  );
   assert.ok(row.config.args.includes('--categoryExtensions'));
   assert.ok(row.config.args.includes('--workspace'));
   // MCP 客户端会把子进程环境里的 DSH_* 名字全部清洗掉，所以 Host 侧的 profile 目录
