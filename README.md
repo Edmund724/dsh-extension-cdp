@@ -54,11 +54,47 @@ GUI 里那一行显示 `fiberPhase: active` **不能**作为依据 —— 端点
 | `DSH_CDP_PROBE_TIMEOUT_MS` | `5000` | TCP 探活超时 |
 | `DSH_CDP_APPROVAL_HINT_MS` | `10000` | 首次工具调用挂起多久后给出「可能正在等允许弹窗」的 stderr 诊断；`0` = 关掉 |
 | `DSH_CDP_BLOCKED_TOOLS` | `trigger_extension_action` | 屏蔽的工具名，逗号分隔；空字符串 = 不过滤 |
+| `DSH_CDP_TOOLS` | 5 个扩展调试工具 + `cdp_call` | 直出哪些工具：`all` = 不裁剪，`none` = 只留 `cdp_call`，逗号分隔 = 白名单 |
 
 入口文件不写死版本路径：从 `chrome-devtools-mcp` 的 `package.json` 里 `bin['chrome-devtools-mcp']` 推导。
 
 包装脚本**只做 TCP 探活，不自己建 CDP 连接**（原因见下一节），真正那条连接由
 `chrome-devtools-mcp` 建立，全程只此一条。
+
+## 工具面：默认只直出常用几个，其余走 `cdp_call`
+
+打开这一行会把 `chrome-devtools-mcp` 的**整个**工具目录带进上下文：实测 `tools/list` 报 34 个工具、
+28,286 字节，而真正跟扩展调试相关的只有 5 个（约 1.9 KB）——剩下 93% 是通用浏览器工具（截图、
+快照、点击、填表、性能 trace…）。所以默认只直出这几个：
+
+`list_extensions`、`reload_extension`、`list_pages`、`select_page`、`evaluate_script`
+
+其余全部收进一个元工具 `cdp_call`，它的说明里带着上游**全部**工具名，所以模型仍然能发现并使用它们：
+
+```json
+{ "name": "cdp_call", "arguments": { "name": "take_screenshot", "arguments": {} } }
+{ "name": "cdp_call", "arguments": { "name": "take_screenshot", "schema": true } }
+```
+
+`cdp_call` 会把内层调用翻译成正常的 `tools/call` 再转发，响应原样回来；带 `schema: true` 时由包装
+脚本**本地**回答（不多跑一趟上游），所以那 28 KB 只在真要调某个工具时才进上下文。实测默认这一份是
+**6 个工具 / 4,540 字节**（元工具自己约 1.2 KB），比不裁剪少 **84%**。
+
+| `DSH_CDP_TOOLS` | 效果 |
+| --- | --- |
+| 不设（默认） | 上面 5 个 + `cdp_call` |
+| `list_extensions,list_pages,…` | 只直出这些 + `cdp_call` |
+| `none` | 只留 `cdp_call` |
+| `all` | 完全不裁剪，等于没有这个功能（34 个 / 28,286 字节） |
+
+**两条规则是分开的，别混**：
+
+- **裁剪只管可见性** —— 被裁掉的工具只是不列出来，**直接调用仍然放行**（会话历史里的工具名不该因为
+  改了配置就突然调不动）；
+- **`DSH_CDP_BLOCKED_TOOLS` 管安全** —— 那是硬拦（本地回 `-32601`），**`cdp_call` 也绕不过去**。
+
+包装脚本启动时会往 stderr 打一行"工具面：直出 N 个 + cdp_call 兜底；DSH_CDP_TOOLS 里上游没有的：…"，
+配错了能立刻看出来。
 
 ## 「允许」对话框挂在 CDP 连接上，不在插件开关上
 
@@ -165,8 +201,9 @@ node tools\check-upgrade.mjs --version 1.11.0   # 检查候选版本
   （未在 GUI 里逐字核实是否显示），所以它更可能出现在日志／控制台里，而不是聊天窗口里。
 - 只有 Edge 里勾上那个开关时可用；关掉开关后 `connect.mjs` 会以 exit 1 报「DevToolsActivePort 是旧的」。
 - **不要给 `chrome-devtools-mcp` 加 `--slim`**：它会把扩展类工具整个砍掉，这一行就没意义了。
-- 上下文成本：打开这一行后工具目录 41 → 78 个，多出的 37 个（34 个 `mcp__chrome-devtools-mcp__*` + 3 个通用
-  MCP resource 工具）schema 合计约 28 KB（`chrome-devtools-mcp` 1.10.1 实测），每次请求都要带。嫌重就关掉它。
+- 上下文成本：默认直出 5 个扩展调试工具 + `cdp_call` 元工具，`tools/list` 实测 **6 个 / 4,540 字节**；
+  `DSH_CDP_TOOLS=all` 回到上游全量（**34 个 / 28,286 字节**，`chrome-devtools-mcp` 1.10.1 实测）。
+  也就是说默认配置已经把那 84% 的常驻 schema 收进了按需加载的元工具（详见上一节）。
 - **升级 `chrome-devtools-mcp` 前先看这条**：`--categoryExtensions` + `--wsEndpoint`（本行的核心组合）在
   **1.10.1 上是合法的**（发布包构建产物里根本没有 `CONFLICTING_ARGS`；实测 `--categoryExtensions
   --wsEndpoint` 能正常启动，扩展工具 `list_extensions` / `reload_extension` 与 SW 求值均可用）。但上游

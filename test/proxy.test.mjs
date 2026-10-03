@@ -40,7 +40,12 @@ rl.on('line', (line) => {
   if (msg.method === 'initialize') {
     send({ jsonrpc: '2.0', id: msg.id, result: { protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'fake', version: '1.0.0' } } });
   } else if (msg.method === 'tools/list') {
-    send({ jsonrpc: '2.0', id: msg.id, result: { tools: [{ name: 'list_extensions' }, { name: 'list_pages' }, { name: 'trigger_extension_action' }] } });
+    send({ jsonrpc: '2.0', id: msg.id, result: { tools: [
+      { name: 'list_extensions', description: 'List extensions', inputSchema: { type: 'object', properties: { x: { type: 'string' } } } },
+      { name: 'list_pages', description: 'List pages', inputSchema: { type: 'object', properties: {} } },
+      { name: 'take_screenshot', description: 'Shot', inputSchema: { type: 'object', properties: {} } },
+      { name: 'trigger_extension_action', description: 'boom', inputSchema: { type: 'object', properties: {} } },
+    ] } });
   } else if (msg.method === 'tools/call') {
     const name = msg.params.name;
     const hang = (process.env.FAKE_HANG_TOOLS || '').split(',').filter(Boolean);
@@ -163,7 +168,8 @@ function startConnect(box, { env = {}, argv = ['--no-usage-statistics', '--categ
 
 test('connect.mjs: 只探端口就转发，且屏蔽工具不外泄', async () => {
   const box = await sandbox();
-  const client = startConnect(box);
+  // 这条测的是"屏蔽"那道闸门本身，所以显式关掉工具面裁剪（all = 回到没这个功能时的行为）。
+  const client = startConnect(box, { env: { DSH_CDP_TOOLS: 'all' } });
   try {
     const initId = client.send('initialize', {
       protocolVersion: '2025-06-18',
@@ -177,7 +183,7 @@ test('connect.mjs: 只探端口就转发，且屏蔽工具不外泄', async () =
     const list = await waitFor(() => client.reply(listId), { timeoutMs: 15000 });
     assert.deepEqual(
       list.result.tools.map((tool) => tool.name),
-      ['list_extensions', 'list_pages'],
+      ['list_extensions', 'list_pages', 'take_screenshot'],
       'tools/list 应当只删掉被屏蔽的那个工具',
     );
 
@@ -350,6 +356,153 @@ test('connect.mjs: DSH_CDP_APPROVAL_HINT_MS=0 关掉诊断', async () => {
     client.send('tools/call', { name: 'list_extensions', arguments: {} });
     await sleep(1200);
     assert.equal(hintCount(client), 0, client.stderr());
+  } finally {
+    client.child.kill();
+    await box.cleanup();
+  }
+});
+
+// --- 工具面裁剪（混合面）：直出常用的几个 + cdp_call 兜底 ---
+
+async function listTools(client) {
+  const id = client.send('tools/list', {});
+  const list = await waitFor(() => client.reply(id), { timeoutMs: 15000 });
+  return list.result.tools;
+}
+
+test('connect.mjs: 默认裁剪成「常用工具 + cdp_call」，且 cdp_call 自描述可用工具', async () => {
+  const box = await sandbox();
+  const client = startConnect(box);
+  try {
+    await handshake(client);
+    const tools = await listTools(client);
+    assert.deepEqual(
+      tools.map((tool) => tool.name),
+      ['list_extensions', 'list_pages', 'cdp_call'],
+      client.stderr(),
+    );
+    const meta = tools.find((tool) => tool.name === 'cdp_call');
+    // 被裁掉的工具必须仍然能被发现：名字写在元工具的说明里。
+    assert.match(meta.description, /take_screenshot/);
+    // 被屏蔽的工具不能借元工具的介绍"复活"。
+    assert.equal(/trigger_extension_action/.test(meta.description), false);
+    assert.deepEqual(meta.inputSchema.required, ['name']);
+    assert.match(client.stderr(), /工具面：直出 2 个 \+ cdp_call 兜底/);
+  } finally {
+    client.child.kill();
+    await box.cleanup();
+  }
+});
+
+test('connect.mjs: cdp_call 翻译成内层调用并透传结果', async () => {
+  const box = await sandbox();
+  const client = startConnect(box);
+  try {
+    await handshake(client);
+    await listTools(client); // 元工具要先见过上游清单才敢翻译
+    const id = client.send('tools/call', { name: 'cdp_call', arguments: { name: 'take_screenshot', arguments: {} } });
+    const reply = await waitFor(() => client.reply(id), { timeoutMs: 15000 });
+    assert.equal(reply.result.content[0].text, 'echo:take_screenshot');
+    assert.equal(reply.result.isError, undefined);
+  } finally {
+    client.child.kill();
+    await box.cleanup();
+  }
+});
+
+test('connect.mjs: cdp_call 的 schema:true 在本地回，不转发', async () => {
+  const box = await sandbox();
+  const client = startConnect(box);
+  try {
+    await handshake(client);
+    await listTools(client);
+    const id = client.send('tools/call', { name: 'cdp_call', arguments: { name: 'list_extensions', schema: true } });
+    const reply = await waitFor(() => client.reply(id), { timeoutMs: 15000 });
+    const text = reply.result.content[0].text;
+    assert.notEqual(text.startsWith('echo:'), true, 'schema 请求不该被转发给子进程');
+    assert.deepEqual(JSON.parse(text), { type: 'object', properties: { x: { type: 'string' } } });
+  } finally {
+    client.child.kill();
+    await box.cleanup();
+  }
+});
+
+test('connect.mjs: cdp_call 的未知名字本地报错，并列出可用工具', async () => {
+  const box = await sandbox();
+  const client = startConnect(box);
+  try {
+    await handshake(client);
+    await listTools(client);
+    const id = client.send('tools/call', { name: 'cdp_call', arguments: { name: 'take_screenshot_typo' } });
+    const reply = await waitFor(() => client.reply(id), { timeoutMs: 15000 });
+    assert.equal(reply.result.isError, true);
+    assert.match(reply.result.content[0].text, /take_screenshot_typo/);
+    assert.match(reply.result.content[0].text, /take_screenshot/);
+  } finally {
+    client.child.kill();
+    await box.cleanup();
+  }
+});
+
+test('connect.mjs: cdp_call 绕不过屏蔽闸门', async () => {
+  const box = await sandbox();
+  const client = startConnect(box);
+  try {
+    await handshake(client);
+    await listTools(client);
+    const id = client.send('tools/call', {
+      name: 'cdp_call',
+      arguments: { name: 'trigger_extension_action', arguments: {} },
+    });
+    const reply = await waitFor(() => client.reply(id), { timeoutMs: 15000 });
+    assert.equal(reply.error?.code, -32601, JSON.stringify(reply));
+    assert.match(reply.error.message, /trigger_extension_action/);
+  } finally {
+    client.child.kill();
+    await box.cleanup();
+  }
+});
+
+test('connect.mjs: 被裁掉的工具直接调用仍然放行（可见性 != 屏蔽）', async () => {
+  const box = await sandbox();
+  const client = startConnect(box);
+  try {
+    await handshake(client);
+    await listTools(client);
+    const id = client.send('tools/call', { name: 'take_screenshot', arguments: {} });
+    const reply = await waitFor(() => client.reply(id), { timeoutMs: 15000 });
+    assert.equal(reply.result.content[0].text, 'echo:take_screenshot');
+  } finally {
+    client.child.kill();
+    await box.cleanup();
+  }
+});
+
+test('connect.mjs: DSH_CDP_TOOLS=none 只留元工具', async () => {
+  const box = await sandbox();
+  const client = startConnect(box, { env: { DSH_CDP_TOOLS: 'none' } });
+  try {
+    await handshake(client);
+    const tools = await listTools(client);
+    assert.deepEqual(tools.map((tool) => tool.name), ['cdp_call']);
+  } finally {
+    client.child.kill();
+    await box.cleanup();
+  }
+});
+
+test('connect.mjs: DSH_CDP_TOOLS=all 完全回到不裁剪的行为', async () => {
+  const box = await sandbox();
+  const client = startConnect(box, { env: { DSH_CDP_TOOLS: 'all' } });
+  try {
+    await handshake(client);
+    const tools = await listTools(client);
+    assert.deepEqual(
+      tools.map((tool) => tool.name),
+      ['list_extensions', 'list_pages', 'take_screenshot'],
+      'all 模式不该加元工具，也不该多删工具',
+    );
+    assert.match(client.stderr(), /工具面：不裁剪/);
   } finally {
     client.child.kill();
     await box.cleanup();

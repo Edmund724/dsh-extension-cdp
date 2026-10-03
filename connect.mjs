@@ -10,7 +10,9 @@
 //    才报 ECONNREFUSED，所以校验只能前置到这里；
 // 4. trigger_extension_action 在 attach 模式下会把 Edge 整个打崩，默认屏蔽；
 // 5. 首次调用挂住时（等"是否允许远程调试？"的那次点击）要给出一条人能看懂的诊断，
-//    否则表现为"卡死"，用户不知道该去点 Edge 的框（见 lib/hang-hint.mjs）。
+//    否则表现为"卡死"，用户不知道该去点 Edge 的框（见 lib/hang-hint.mjs）；
+// 6. chrome-devtools-mcp 的 tools/list 有 35 个工具 / 约 28 KB，每次请求都要带；默认只直出
+//    扩展调试常用的几个，其余收进 cdp_call 元工具（见 lib/tool-surface.mjs）。
 //
 // 只准探端口，不准自己建 CDP 连接：日常 profile 走的是 Chromium 的 approval 模式
 // （RemoteDebuggingServerMode::kWithApprovalOnly），**每一条新的 WebSocket 连接都会让
@@ -29,6 +31,7 @@ import {
 import { findMcpEntry, dshProfileDirs } from './lib/mcp-entry.mjs';
 import { createLineSplitter, filterClientLine, filterServerLine, parseBlockedTools } from './lib/filter.mjs';
 import { approvalHintText, createHangHint, parseApprovalHintMs } from './lib/hang-hint.mjs';
+import { createToolSurface, parseToolSurface, META_TOOL_NAME } from './lib/tool-surface.mjs';
 import { buildServerArgs } from './lib/args.mjs';
 
 const DEFAULT_USER_DATA_DIR = () =>
@@ -52,6 +55,7 @@ function readConfig(env = process.env) {
     host: env.DSH_CDP_HOST || '127.0.0.1',
     probeTimeoutMs: Number.isFinite(parsedTimeout) && parsedTimeout > 0 ? parsedTimeout : 5000,
     approvalHintMs: parseApprovalHintMs(env.DSH_CDP_APPROVAL_HINT_MS),
+    surface: parseToolSurface(env.DSH_CDP_TOOLS),
     blocked: parseBlockedTools(env.DSH_CDP_BLOCKED_TOOLS),
     searchDirs: String(env.DSH_CDP_MCP_SEARCH_DIRS ?? '')
       .split(path.delimiter)
@@ -75,7 +79,7 @@ function profileSearchDirs(portFile) {
   return dirs;
 }
 
-function startProxy({ entry, wsUrl, blocked, approvalHintMs }) {
+function startProxy({ entry, wsUrl, blocked, approvalHintMs, surface: surfaceConfig }) {
   const args = buildServerArgs({ entry, wsUrl, extraArgs: process.argv.slice(2) });
   log(`启动 chrome-devtools-mcp：${process.execPath} ${args.join(' ')}`);
 
@@ -87,6 +91,24 @@ function startProxy({ entry, wsUrl, blocked, approvalHintMs }) {
     timeoutMs: approvalHintMs,
     onHint: ({ tool }) => log(approvalHintText({ tool, timeoutMs: approvalHintMs })),
   });
+
+  // 工具面裁剪（可见性）+ 元工具兜底；与屏蔽（安全）是两条独立的闸门。
+  const surface = createToolSurface({ ...surfaceConfig, blocked });
+  let surfaceLogged = false;
+  function logSurfaceOnce() {
+    if (surfaceLogged) return;
+    const exposure = surface.exposure();
+    if (!exposure.seen) return;
+    surfaceLogged = true;
+    if (exposure.meta) {
+      log(
+        `工具面：直出 ${exposure.resident.length} 个 + ${META_TOOL_NAME} 兜底` +
+          (exposure.missing.length > 0 ? `；DSH_CDP_TOOLS 里上游没有的：${exposure.missing.join(', ')}` : ''),
+      );
+    } else {
+      log(`工具面：不裁剪，直出 ${exposure.resident.length} 个`);
+    }
+  }
 
   let closing = false;
   const stop = () => {
@@ -113,19 +135,38 @@ function startProxy({ entry, wsUrl, blocked, approvalHintMs }) {
   const clientSplitter = createLineSplitter();
   process.stdin.on('data', (chunk) => {
     for (const line of clientSplitter.push(chunk.toString('utf8'))) {
+      // 顺序是有意的：先过屏蔽闸门（安全），再做裁剪/元工具翻译（可见性）。
       const verdict = filterClientLine(line, blocked);
-      if (verdict.forward) {
-        // 只监控真正转发出去的调用：被屏蔽的工具在本地就回 -32601 了，根本没碰 CDP。
-        hangHint.noteForwardedRequest(line);
-        child.stdin.write(`${line}\n`);
-      } else if (verdict.reply) process.stdout.write(`${verdict.reply}\n`);
+      if (!verdict.forward) {
+        process.stdout.write(`${verdict.reply}\n`);
+        continue;
+      }
+
+      const shaped = surface.rewriteClientLine(line);
+      if (shaped.reply !== null) {
+        process.stdout.write(`${shaped.reply}\n`);
+        continue;
+      }
+
+      // cdp_call 翻译出来的那一行是新的 tools/call，必须再过一次屏蔽闸门 ——
+      // 否则元工具就成了绕开 DSH_CDP_BLOCKED_TOOLS 的后门。
+      const inner = filterClientLine(shaped.forward, blocked);
+      if (!inner.forward) {
+        process.stdout.write(`${inner.reply}\n`);
+        continue;
+      }
+
+      // 只监控真正转发出去的调用：被屏蔽的工具在本地就回 -32601 了，根本没碰 CDP。
+      hangHint.noteForwardedRequest(shaped.forward);
+      child.stdin.write(`${shaped.forward}\n`);
     }
   });
 
   const serverSplitter = createLineSplitter();
   const writeServerLine = (line) => {
     hangHint.noteResponseLine(line);
-    process.stdout.write(`${filterServerLine(line, blocked)}\n`);
+    process.stdout.write(`${filterServerLine(surface.rewriteServerLine(line), blocked)}\n`);
+    logSurfaceOnce();
   };
   child.stdout.on('data', (chunk) => {
     for (const line of serverSplitter.push(chunk.toString('utf8'))) writeServerLine(line);
@@ -173,7 +214,13 @@ async function main() {
   const entry = found.entry;
   log(`chrome-devtools-mcp 入口：${entry}`);
 
-  startProxy({ entry, wsUrl, blocked: cfg.blocked, approvalHintMs: cfg.approvalHintMs });
+  startProxy({
+    entry,
+    wsUrl,
+    blocked: cfg.blocked,
+    approvalHintMs: cfg.approvalHintMs,
+    surface: cfg.surface,
+  });
 }
 
 main().catch((err) => die(`未预期的错误：${err?.stack ?? err}`));
