@@ -1,6 +1,11 @@
 // Minimal MCP stdio client: spawn a server, initialize, list tools, call tools.
 // Usage: node mcp-probe.mjs <serverCommand...>  -- <toolCallJson> ...
-import { spawn } from 'node:child_process';
+//
+// Windows note: `npx` / `npm` / `pnpm` are .cmd shims, and Node refuses to spawn those without
+// a shell (EINVAL since CVE-2024-27980). They are detected and routed through cmd.exe, which
+// means the arguments get a second round of parsing -- lib/spawn-shim.mjs quotes them.
+import { spawn, spawnSync } from 'node:child_process';
+import { needsWindowsShell, quoteForCmd } from '../lib/spawn-shim.mjs';
 
 const argv = process.argv.slice(2);
 const sep = argv.indexOf('--');
@@ -8,7 +13,26 @@ const serverArgv = sep === -1 ? argv : argv.slice(0, sep);
 const calls = sep === -1 ? [] : argv.slice(sep + 1).map((s) => JSON.parse(s));
 
 const [cmd, ...args] = serverArgv;
-const child = spawn(cmd, args, { stdio: ['pipe', 'pipe', 'inherit'], env: process.env });
+const shell = needsWindowsShell({ command: cmd });
+const child = spawn(cmd, shell ? args.map(quoteForCmd) : args, {
+  stdio: ['pipe', 'pipe', 'inherit'],
+  env: process.env,
+  shell,
+});
+
+// shell 模式下 child 是 cmd.exe，只 kill 它不会带走真正的服务器进程：npx 链会继续跑，留下
+// 占着端口的孤儿（用同步的 taskkill 保证它真的执行完，别在退出竞态里丢掉）。
+function stopChild() {
+  if (process.platform === 'win32' && shell && child.pid !== undefined) {
+    spawnSync('taskkill', ['/pid', String(child.pid), '/t', '/f'], { stdio: 'ignore' });
+    return;
+  }
+  try {
+    child.kill();
+  } catch {
+    // 已经退了
+  }
+}
 
 let buf = '';
 const pending = new Map();
@@ -95,5 +119,14 @@ for (const call of calls) {
   }
 }
 
-child.kill();
+// 收尾：先关 stdin —— MCP stdio 服务器看到 EOF 会自己退出，整条 cmd/npx 链随之收干净；
+// 再等一拍补一刀杀整棵树（顺序和等待都是必要的，见 stopChild 的注释）。
+process.on('exit', stopChild);
+try {
+  child.stdin.end();
+} catch {
+  // 已经退了
+}
+await new Promise((resolve) => setTimeout(resolve, 500));
+stopChild();
 process.exit(0);
