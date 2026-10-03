@@ -16,9 +16,14 @@
           - 'D:\DSH\dsh-extension-cdp\connect.mjs'
           - '--no-usage-statistics'
           - '--categoryExtensions'
-          # install_extension only accepts paths under a --workspace root
-          # (default OS temp stays a root regardless). Point this at the built
-          # extension folder; repeat the flag for more roots.
+          # --workspace only gates tools that take a filesystem path
+          # (install_extension, upload_file, trace/snapshot output paths). It is
+          # NOT needed to reload, list or evaluate: measured 2026-10-03 with the
+          # flag absent, reload_extension succeeded while install_extension on the
+          # very same folder returned "not within any of the configured workspace
+          # roots". So this pair is for installing, not for hot-reloading.
+          # Default root is the OS temp dir; point this at the built extension
+          # folder; repeat the flag for more roots.
           - '--workspace'
           - 'D:\src\BiliScript\dist'
         # The endpoint is expected to be absent while the Edge switch is off:
