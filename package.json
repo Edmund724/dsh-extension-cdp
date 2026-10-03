@@ -1,0 +1,14 @@
+{
+  "name": "dsh-cdp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Attach the DSH Chrome DevTools MCP client to the locally running Edge so extension debugging tools toggle on and off with one row.",
+  "license": "MIT",
+  "icon": "./icon.svg",
+  "exports": { "./connect.mjs": "./connect.mjs", "./package.json": "./package.json", "./locale/*.json": "./locale/*.json" },
+  "scripts": { "test": "node --test \"test/*.test.mjs\"" },
+  "engines": { "node": ">=22.15" },
+  "files": ["connect.mjs", "lib/**", "cordis.patch.yml", "README.md", "locale/*.json", "icon.svg", "test/**", "tools/*.mjs"],
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } }
+}
