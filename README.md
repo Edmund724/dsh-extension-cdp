@@ -129,8 +129,8 @@ node tools\mcp-probe.mjs node D:\DSH\dsh-cdp\connect.mjs --no-usage-statistics -
 - MV3 的 Service Worker 睡着时**不在 `list_pages` 里**，要先用页面里的操作把它唤醒。
 - 只有 Edge 里勾上那个开关时可用；关掉开关后 `connect.mjs` 会以 exit 1 报「DevToolsActivePort 是旧的」。
 - **不要给 `chrome-devtools-mcp` 加 `--slim`**：它会把扩展类工具整个砍掉，这一行就没意义了。
-- 上下文成本：打开这一行后工具目录 41 → 77 个，多出的 36 个（33 个 `mcp__chrome-devtools-mcp__*` + 3 个通用
-  MCP resource 工具）schema 合计约 26 KB，每次请求都要带。嫌重就关掉它。
+- 上下文成本：打开这一行后工具目录 41 → 78 个，多出的 37 个（34 个 `mcp__chrome-devtools-mcp__*` + 3 个通用
+  MCP resource 工具）schema 合计约 28 KB（`chrome-devtools-mcp` 1.10.1 实测），每次请求都要带。嫌重就关掉它。
 
 ## 测试
 
