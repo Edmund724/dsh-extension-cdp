@@ -202,7 +202,7 @@ function report({ target, pkgDir, out, exists, readFile, listFiles }) {
   if (result.verdict === UNSAFE) {
     out(`结论：不安全 —— ${result.reason}`);
     out('这条组合（--categoryExtensions + --wsEndpoint）就是本行的核心：一旦互斥，这一行会启动即失败。');
-    out('处理：要么留在当前版本，要么改走不依赖 --wsEndpoint 的路线（见 README「升级 chrome-devtools-mcp 前先看这条」）。');
+    out('处理：要么留在当前版本，要么改走不依赖 --wsEndpoint 的路线（见 docs/operations.md「已知限制」末条）。');
     return EXIT.unsafe;
   }
   out(`结论：无法判定 —— ${result.reason}`);
