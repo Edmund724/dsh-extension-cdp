@@ -12,7 +12,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { resolveEntryFromPackageJson, findMcpEntry } from '../lib/mcp-entry.mjs';
+// 9. MCP 客户端会给子进程做环境清洗（所有 DSH_* 名字都被丢掉），所以真实运行路径上
+//    DSH_PROFILE_DIR 永远拿不到 —— 入口发现不能只靠它，否则整行必然退避重试到死；
+//    dshProfileDirs 从 <dsh home>/profiles/<name> 推候选目录，不依赖任何 DSH_* 变量。
+import { resolveEntryFromPackageJson, findMcpEntry, dshProfileDirs } from '../lib/mcp-entry.mjs';
 
 const BIN = {
   'chrome-devtools-mcp': './build/src/bin/chrome-devtools-mcp.js',
@@ -139,4 +142,75 @@ test('findMcpEntry: 找不到返回 { error }，不抛异常', () => {
   assert.ok(got.error, 'must return { error }');
   assert.equal(got.entry, undefined);
   assert.match(got.error, /chrome-devtools-mcp/);
+});
+
+test('dshProfileDirs: 列出 <root>/profiles 下每个 profile 目录', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-cdp-home-'));
+  try {
+    fs.mkdirSync(path.join(root, 'profiles', 'desktop'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'profiles', 'other'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'profiles', 'not-a-dir'), '');
+    assert.deepEqual(dshProfileDirs({ dshHome: root }), [
+      path.join(root, 'profiles', 'desktop'),
+      path.join(root, 'profiles', 'other'),
+    ]);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('dshProfileDirs: 没有 profiles 目录时返回空数组，不抛错', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-cdp-home-empty-'));
+  try {
+    assert.deepEqual(dshProfileDirs({ dshHome: root }), []);
+    assert.deepEqual(dshProfileDirs({ dshHome: path.join(root, 'nope') }), []);
+    assert.deepEqual(dshProfileDirs({ dshHome: root, readdir: () => { throw new Error('EACCES'); } }), []);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('dshProfileDirs: DSH_HOME 覆盖默认，显式 dshHome 覆盖 DSH_HOME', () => {
+  const fromEnv = dshProfileDirs({ env: { DSH_HOME: 'X:/custom' }, home: 'X:/home' });
+  assert.deepEqual(fromEnv, []);
+  const calls = [];
+  dshProfileDirs({
+    env: { DSH_HOME: 'X:/from-env' },
+    dshHome: 'X:/explicit',
+    readdir: (dir) => {
+      calls.push(dir);
+      return [];
+    },
+  });
+  assert.deepEqual(calls, [path.join('X:/explicit', 'profiles')]);
+  const homeCalls = [];
+  dshProfileDirs({
+    home: 'X:/home',
+    readdir: (dir) => {
+      homeCalls.push(dir);
+      return [];
+    },
+  });
+  assert.deepEqual(homeCalls, [path.join('X:/home', '.dsh', 'profiles')]);
+});
+
+test('findMcpEntry: DSH_* 被清洗掉后靠 profile 目录仍能找到入口', () => {
+  // 真实运行路径：MCP 客户端把 DSH_PROFILE_DIR 洗掉了，只有 os.homedir() 可信。
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-cdp-realhome-'));
+  try {
+    const pkgDir = path.join(home, '.dsh', 'profiles', 'desktop', 'node_modules', 'chrome-devtools-mcp');
+    fs.mkdirSync(path.join(pkgDir, 'build', 'src', 'bin'), { recursive: true });
+    fs.writeFileSync(
+      path.join(pkgDir, 'package.json'),
+      JSON.stringify({ name: 'chrome-devtools-mcp', bin: BIN }),
+    );
+    const got = findMcpEntry({
+      env: {}, // 注意：没有 DSH_PROFILE_DIR
+      searchDirs: dshProfileDirs({ home }),
+      execPath: 'C:/ghost/node.exe',
+    });
+    assert.deepEqual(got, { entry: path.join(pkgDir, 'build', 'src', 'bin', 'chrome-devtools-mcp.js') });
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
 });

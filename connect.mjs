@@ -24,7 +24,7 @@ import {
   readDevToolsActivePort,
   resolveWsUrl,
 } from './lib/endpoint.mjs';
-import { findMcpEntry } from './lib/mcp-entry.mjs';
+import { findMcpEntry, dshProfileDirs } from './lib/mcp-entry.mjs';
 import { createLineSplitter, filterClientLine, filterServerLine, parseBlockedTools } from './lib/filter.mjs';
 import { buildServerArgs } from './lib/args.mjs';
 
@@ -145,7 +145,12 @@ async function main() {
     );
   }
 
-  const found = findMcpEntry({ env, searchDirs: [...cfg.searchDirs, ...profileSearchDirs(cfg.portFile)] });
+  // 入口候选目录：显式 env > DSH 自己的 profile 目录树（拿不到 DSH_* 时唯一可靠的路）>
+  // 端口文件旁的目录。
+  const found = findMcpEntry({
+    env,
+    searchDirs: [...cfg.searchDirs, ...dshProfileDirs({ env }), ...profileSearchDirs(cfg.portFile)],
+  });
   if (found.error) die(found.error);
   const entry = found.entry;
   log(`chrome-devtools-mcp 入口：${entry}`);

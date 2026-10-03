@@ -24,6 +24,12 @@
         # do not fail activation, let the reconnect policy below keep retrying
         # so flipping the switch later connects on its own.
         failOnStartupError: false
+        # The MCP client hands the child a scrubbed environment: every DSH_* name
+        # is dropped, so DSH_PROFILE_DIR never reaches connect.mjs on its own.
+        # Explicit `env` merges after that scrub, so forward the Host-side value
+        # here; connect.mjs falls back to scanning <dsh home>/profiles/* anyway.
+        env:
+          DSH_CDP_MCP_SEARCH_DIRS: !!js process.env.DSH_PROFILE_DIR || ''
         reconnect:
           maxAttempts: 1000
           maxDelayMs: 30000

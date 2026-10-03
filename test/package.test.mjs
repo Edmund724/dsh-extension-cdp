@@ -147,6 +147,14 @@ test('cordis.patch.yml: 解析出的行与 config 正确', () => {
   assert.equal(row.config.args[0], 'D:\\DSH\\dsh-cdp\\connect.mjs');
   assert.ok(row.config.args.includes('--categoryExtensions'));
   assert.ok(row.config.args.includes('--workspace'));
+  // MCP 客户端会把子进程环境里的 DSH_* 名字全部清洗掉，所以 Host 侧的 profile 目录
+  // 必须靠显式 env 转发（env 在清洗之后合并）；少了这一条，真实路径上就会
+  // "找不到 chrome-devtools-mcp 入口" 然后无限退避重试。
+  assert.match(
+    String(row.config.env.DSH_CDP_MCP_SEARCH_DIRS.__jsExpr),
+    /DSH_PROFILE_DIR/,
+    'patch 必须把 DSH_PROFILE_DIR 显式转发给子进程',
+  );
 });
 
 test('files: 每条都能在仓库里匹配到东西', () => {
