@@ -14,13 +14,17 @@ attach 这条路只用三样 Chromium 本身的能力：
 
 源码引用与实测记录见[调研文档](research-cdp-extension-mcp.md)。
 
-## 本仓库里 Edge 专有的部分
+## 本仓库怎么选浏览器
 
-只有两处，都在默认值和文案层面：
+没有 Edge 专有的代码路径。`lib/browser-paths.mjs` 按这个顺序决定 user data 目录：
 
-- `connect.mjs` 的默认 user data 目录是 `%LOCALAPPDATA%\Microsoft\Edge\User Data`，用
-  `DSH_CDP_USER_DATA_DIR` 覆盖；
-- 报错和挂起诊断的文案写的是 `edge://inspect`、Edge 窗口。
+1. `DSH_CDP_USER_DATA_DIR`（显式指定，优先级最高）；
+2. `DSH_CDP_PORT_FILE`（只关心端口文件，不关心目录）；
+3. 候选目录里**真的有** `DevToolsActivePort` 的那个（候选顺序 Edge → Chrome）；
+4. 都没有时回落到 Edge 的默认位置，报错里列出试过的全部路径。
+
+候选路径按平台给：Windows 用 `%LOCALAPPDATA%`，macOS 用 `~/Library/Application Support/`，
+Linux 用 `~/.config/`。报错和挂起诊断按探测到的浏览器点名它自己的 inspect 页。
 
 工具面、`DSH_CDP_TOOLS` / `DSH_CDP_BLOCKED_TOOLS` 都是上游 `chrome-devtools-mcp` 的能力，与品牌无关。
 
@@ -30,7 +34,7 @@ attach 这条路只用三样 Chromium 本身的能力：
 `kDevToolsAcceptDebuggingConnections` 门控（桌面默认启用、ChromeOS 禁用），Chrome 侧从 144 起可用
 （[官方公告](https://developer.chrome.com/blog/chrome-devtools-mcp-debug-your-browser-session)）。
 
-Chrome 的接法就是把目录指过去：
+Chrome 会被自动探测到（Edge 没有端口文件、Chrome 有，就选 Chrome）。装在非标准位置时才需要显式指定：
 
 ```powershell
 $env:DSH_CDP_USER_DATA_DIR = "$env:LOCALAPPDATA\Google\Chrome\User Data"
@@ -40,8 +44,8 @@ $env:DSH_CDP_USER_DATA_DIR = "$env:LOCALAPPDATA\Google\Chrome\User Data"
 
 | 浏览器 | 状态 |
 | --- | --- |
-| Edge（默认值，本仓库实测环境） | 可用，入口是 `edge://inspect` |
-| Chrome 144+ | 机制相同，本机未实测；按上面的 env 指到 Chrome 的 user data 目录 |
+| Edge（候选里的第一个，本仓库实测环境） | 可用，入口是 `edge://inspect` |
+| Chrome 144+ | 机制相同，本机未实测；目录会被自动探测，也可用 env 显式指定 |
 | Chrome <144 | 没有 approval 开关，这条路走不通 |
 | 其它 Chromium 分支（Brave、Vivaldi 等） | 未实测；跟随上游 Chromium 版本的话会有同一个开关，去它们的 inspect 页确认 |
 

@@ -6,8 +6,8 @@
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
-| `DSH_CDP_USER_DATA_DIR` | `%LOCALAPPDATA%\Microsoft\Edge\User Data` | Edge user data 目录 |
-| `DSH_CDP_PORT_FILE` | `<user data dir>\DevToolsActivePort` | 端口文件路径 |
+| `DSH_CDP_USER_DATA_DIR` | 自动探测（Edge → Chrome） | 浏览器 user data 目录；显式指定时优先级最高 |
+| `DSH_CDP_PORT_FILE` | `<user data dir>\DevToolsActivePort` | 端口文件路径；只设它时不探测目录 |
 | `DSH_CDP_HOST` | `127.0.0.1` | DevTools 主机 |
 | `DSH_CDP_MCP_ENTRY` | 自动查找 | 直接指定 chrome-devtools-mcp 入口文件 |
 | `DSH_CDP_MCP_SEARCH_DIRS` | 空 | 额外搜索目录，用 `path.delimiter`（Windows 下 `;`）分隔 |

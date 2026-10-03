@@ -248,6 +248,40 @@ test('connect.mjs: 端口不在听时直接退出，不建连接也不弹窗', a
   assert.match(stderr, /edge:\/\/inspect/);
 });
 
+test('connect.mjs: 候选目录都没有端口文件时，报出所有候选位置与逃逸口', async () => {
+  // 把三个"家"的位置都指到空目录：候选目录里不会有 DevToolsActivePort。
+  const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-extension-cdp-nocand-'));
+  const child = spawn(process.execPath, [CONNECT], {
+    env: {
+      ...process.env,
+      LOCALAPPDATA: empty,
+      HOME: empty,
+      USERPROFILE: empty,
+      DSH_CDP_PORT_FILE: '',
+      DSH_CDP_USER_DATA_DIR: '',
+    },
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  let stdout = '';
+  let stderr = '';
+  child.stdout.on('data', (chunk) => {
+    stdout += chunk.toString('utf8');
+  });
+  child.stderr.on('data', (chunk) => {
+    stderr += chunk.toString('utf8');
+  });
+
+  const code = await new Promise((resolve) => child.on('exit', resolve));
+  fs.rmSync(empty, { recursive: true, force: true });
+
+  assert.equal(code, 1, `应当以 exit 1 结束，实际 ${code}；stderr=${stderr}`);
+  assert.equal(stdout, '', 'stdout 只能是 MCP 帧，不能有诊断');
+  assert.match(stderr, /Edge/);
+  assert.match(stderr, /Chrome/);
+  assert.match(stderr, /DSH_CDP_USER_DATA_DIR/);
+  assert.match(stderr, /Allow remote debugging for this browser instance/);
+});
+
 // --- 首次调用挂住 = 大概率在等 Edge 的"是否允许远程调试？"弹窗 ---
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));

@@ -3,6 +3,8 @@
 ## 前置条件：inspect 页那一个勾
 
 在 Edge 打开 `edge://inspect`，勾上 **"Allow remote debugging for this browser instance"**。
+（Chrome 是 `chrome://inspect#remote-debugging`；user data 目录由 `lib/browser-paths.mjs` 按
+Edge → Chrome 自动探测，装在别处时用 `DSH_CDP_USER_DATA_DIR` 指定，见[兼容性](compatibility.md)。）
 
 这个开关会把端口和 `/devtools/browser/<guid>` 写进
 `%LOCALAPPDATA%\Microsoft\Edge\User Data\DevToolsActivePort`。注意：
@@ -14,7 +16,7 @@
 - 关掉开关后文件**不会删除**，只是端口不再监听 —— 所以「文件存在」不等于「能连」；
 - 用 `--remote-debugging-port=<p>` 启动的 Edge **不写**这个文件。
 
-**为什么不能干脆自己用 `--remote-debugging-port` 启动日常 Edge**：这个开关只在浏览器启动那一刻生效，
+**为什么不能干脆自己用 `--remote-debugging-port` 启动日常浏览器**：这个开关只在浏览器启动那一刻生效，
 而日常 profile 正被你手上那个实例占着（Chromium 的 Singleton 锁），要生效得先把它关掉；换一个非默认
 `--user-data-dir` 就等于把登录态和扩展一起丢掉。
 

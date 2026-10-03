@@ -3,8 +3,8 @@
 把 DSH 的 Chrome DevTools MCP 客户端 attach 到你**正在跑的日常浏览器**（不是另开一个），
 这样扩展调试类工具（`list_extensions`、扩展 Service Worker 的 `evaluate_script` 等）能像一行插件一样随开随关。
 
-默认目标是 Edge。机制上不依赖 Edge —— Chrome 144+ 以及跟随上游的 Chromium 分支是同一套做法，
-细节见[兼容性](docs/compatibility.md)。
+默认按 **Edge → Chrome** 的顺序自动探测 user data 目录，也可以用 `DSH_CDP_USER_DATA_DIR` 显式指定。
+机制与浏览器品牌无关，细节见[兼容性](docs/compatibility.md)。
 
 它是一个**配置型 bundle**：`cordis.patch.yml` 插入一行 `@deepseek-ai/dsh-mcp-client`，
 `connect.mjs` 作为包装脚本负责「发现端点 → 校验 → 透明转发」。CDP 与工具全部来自上游

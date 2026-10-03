@@ -78,6 +78,20 @@ test('readDevToolsActivePort: 文件缺失抛错且消息含路径', () => {
   );
 });
 
+test('readDevToolsActivePort: 提示文案可注入（换浏览器不用改这里）', () => {
+  const boom = () => {
+    throw new Error('ENOENT');
+  };
+  assert.throws(
+    () => readDevToolsActivePort('X:/nope/DevToolsActivePort', { readFile: boom, hint: '去 Edge 的 edge://inspect 打开开关。' }),
+    /去 Edge 的 edge:\/\/inspect 打开开关/,
+  );
+  assert.throws(
+    () => readDevToolsActivePort('X:/nope/DevToolsActivePort', { readFile: boom }),
+    /Allow remote debugging for this browser instance/,
+  );
+});
+
 test('readDevToolsActivePort: 默认注入 readFileSync 风格签名', () => {
   const seen = [];
   const got = readDevToolsActivePort('X:/User Data/DevToolsActivePort', {

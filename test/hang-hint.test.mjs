@@ -203,6 +203,14 @@ test('缺少 unref 的定时器实现不报错（测试替身/浏览器环境）
   assert.doesNotThrow(() => hint.noteForwardedRequest(call(1)));
 });
 
+test('approvalHintText: 默认不点名某个浏览器，点名时用给的那个', () => {
+  const generic = approvalHintText({ tool: 'list_extensions', timeoutMs: 10000 });
+  assert.equal(/Edge|Chrome/.test(generic), false, `不该预设浏览器：${generic}`);
+  const named = approvalHintText({ tool: 'list_extensions', timeoutMs: 10000, browserName: 'Chrome' });
+  assert.match(named, /Chrome/);
+  assert.match(named, /允许/);
+});
+
 test('approvalHintText: 带上工具名、等待时长与关闭方式', () => {
   const text = approvalHintText({ tool: 'list_extensions', timeoutMs: 10000 });
   assert.match(text, /list_extensions/);

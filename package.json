@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Attach the DSH Chrome DevTools MCP client to the locally running Edge so extension debugging tools toggle on and off with one row.",
+  "description": "Attach the DSH Chrome DevTools MCP client to the browser you are already running (Edge or Chrome) so extension debugging tools toggle on and off with one row.",
   "license": "MIT",
   "icon": "./icon.svg",
   "exports": { "./connect.mjs": "./connect.mjs", "./package.json": "./package.json", "./locale/*.json": "./locale/*.json" },

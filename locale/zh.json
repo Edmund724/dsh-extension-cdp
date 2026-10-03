@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "Edge 扩展调试",
-    "description": "调试浏览器扩展：把 DSH 的 Chrome DevTools MCP 客户端 attach 到你正在跑的日常 Edge —— 不用另开浏览器、不用新 profile，关掉这一行就断开。"
+    "title": "浏览器扩展调试",
+    "description": "调试浏览器扩展：把 DSH 的 Chrome DevTools MCP 客户端 attach 到你正在跑的日常浏览器（默认 Edge，也支持 Chrome）—— 不用另开浏览器、不用新 profile，关掉这一行就断开。"
   }
 }

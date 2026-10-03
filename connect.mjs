@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// dsh-extension-cdp 包装脚本：把 DSH 的 chrome-devtools-mcp 客户端 attach 到你正在跑的 Edge。
+// dsh-extension-cdp 包装脚本：把 DSH 的 chrome-devtools-mcp 客户端 attach 到你正在跑的浏览器
+// （user data 目录默认按 Edge -> Chrome 的顺序自动探测，见 lib/browser-paths.mjs）。
 //
 // 契约：stdout 只允许出现 MCP 帧（换行分隔的 JSON-RPC），所有诊断一律走 stderr。
 //
@@ -19,7 +20,6 @@
 // Edge 弹一次"是否允许远程调试？"要用户手点**。这里多连一次，用户就要多点一次，
 // 所以校验止步于 TCP，真正那条连接留给 chrome-devtools-mcp 唯一的一次。
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 
@@ -28,14 +28,17 @@ import {
   readDevToolsActivePort,
   resolveWsUrl,
 } from './lib/endpoint.mjs';
+import {
+  describeBrowser,
+  missingPortFileText,
+  pickBrowser,
+  remoteDebuggingHint,
+} from './lib/browser-paths.mjs';
 import { findMcpEntry, dshProfileDirs } from './lib/mcp-entry.mjs';
 import { createLineSplitter, filterClientLine, filterServerLine, parseBlockedTools } from './lib/filter.mjs';
 import { approvalHintText, createHangHint, parseApprovalHintMs } from './lib/hang-hint.mjs';
 import { createToolSurface, parseToolSurface, META_TOOL_NAME } from './lib/tool-surface.mjs';
 import { buildServerArgs } from './lib/args.mjs';
-
-const DEFAULT_USER_DATA_DIR = () =>
-  path.join(process.env.LOCALAPPDATA ?? path.join(os.homedir(), 'AppData', 'Local'), 'Microsoft', 'Edge', 'User Data');
 
 function die(message) {
   process.stderr.write(`[dsh-extension-cdp] ${message}\n`);
@@ -47,11 +50,12 @@ function log(message) {
 }
 
 function readConfig(env = process.env) {
-  const userDataDir = env.DSH_CDP_USER_DATA_DIR || DEFAULT_USER_DATA_DIR();
-  const portFile = env.DSH_CDP_PORT_FILE || path.join(userDataDir, 'DevToolsActivePort');
+  const picked = pickBrowser({ env });
   const parsedTimeout = Number(env.DSH_CDP_PROBE_TIMEOUT_MS ?? 5000);
   return {
-    portFile,
+    picked,
+    browser: picked.browser,
+    portFile: picked.portFile,
     host: env.DSH_CDP_HOST || '127.0.0.1',
     probeTimeoutMs: Number.isFinite(parsedTimeout) && parsedTimeout > 0 ? parsedTimeout : 5000,
     approvalHintMs: parseApprovalHintMs(env.DSH_CDP_APPROVAL_HINT_MS),
@@ -79,17 +83,17 @@ function profileSearchDirs(portFile) {
   return dirs;
 }
 
-function startProxy({ entry, wsUrl, blocked, approvalHintMs, surface: surfaceConfig }) {
+function startProxy({ entry, wsUrl, blocked, approvalHintMs, browserName, surface: surfaceConfig }) {
   const args = buildServerArgs({ entry, wsUrl, extraArgs: process.argv.slice(2) });
   log(`启动 chrome-devtools-mcp：${process.execPath} ${args.join(' ')}`);
 
   const child = spawn(process.execPath, args, { stdio: ['pipe', 'pipe', 'pipe'] });
 
-  // 首次调用挂住 = 很可能正卡在 Edge 的"是否允许远程调试？"弹窗上。诊断只写 stderr，
+  // 首次调用挂住 = 很可能正卡在浏览器的"是否允许远程调试？"弹窗上。诊断只写 stderr，
   // 不碰任何 MCP 帧（stdout 是协议通道）。
   const hangHint = createHangHint({
     timeoutMs: approvalHintMs,
-    onHint: ({ tool }) => log(approvalHintText({ tool, timeoutMs: approvalHintMs })),
+    onHint: ({ tool }) => log(approvalHintText({ tool, timeoutMs: approvalHintMs, browserName })),
   });
 
   // 工具面裁剪（可见性）+ 元工具兜底；与屏蔽（安全）是两条独立的闸门。
@@ -185,10 +189,14 @@ function startProxy({ entry, wsUrl, blocked, approvalHintMs, surface: surfaceCon
 async function main() {
   const env = process.env;
   const cfg = readConfig(env);
+  log(`浏览器：${describeBrowser(cfg.picked)}`);
+
+  // 一个候选目录都没有端口文件：先说清试过哪些位置，再让用户去打开开关。
+  if (cfg.picked.source === 'fallback') die(missingPortFileText(cfg.picked));
 
   let active;
   try {
-    active = readDevToolsActivePort(cfg.portFile);
+    active = readDevToolsActivePort(cfg.portFile, { hint: remoteDebuggingHint(cfg.browser) });
   } catch (err) {
     die(err?.message ?? String(err));
   }
@@ -200,7 +208,7 @@ async function main() {
   if (!alive) {
     die(
       `DevToolsActivePort 是旧的：${cfg.host}:${active.port} 没有在监听。\n` +
-        '去 Edge 的 edge://inspect 打开 "Allow remote debugging for this browser instance"，然后重试。',
+        remoteDebuggingHint(cfg.browser),
     );
   }
 
@@ -219,6 +227,7 @@ async function main() {
     wsUrl,
     blocked: cfg.blocked,
     approvalHintMs: cfg.approvalHintMs,
+    browserName: cfg.browser?.name,
     surface: cfg.surface,
   });
 }

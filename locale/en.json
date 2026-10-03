@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "Edge extension DevTools",
-    "description": "Extension debugging: attaches the DSH Chrome DevTools MCP client to the Edge you are already running — no second browser, no fresh profile."
+    "title": "Browser extension DevTools",
+    "description": "Extension debugging: attaches the DSH Chrome DevTools MCP client to the browser you are already running (Edge by default, Chrome supported) — no second browser, no fresh profile."
   }
 }
