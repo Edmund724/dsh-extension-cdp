@@ -19,7 +19,7 @@
 端点缺席时不会让激活失败（`failOnStartupError: false` + `reconnect`），所以可以先把这一行打开，
 之后再去 Edge 里翻开关，它会自己连上。
 
-**怎么确认真的生效**：看 `Tool.listTools` 里有没有 `mcp__cdp__*`
+**怎么确认真的生效**：看 `Tool.listTools` 里有没有 `mcp__chrome-devtools-mcp__*`
 （`cordis_inspect_query`：`platform: host`、`provider: Tool`、`method: listTools`）。
 GUI 里那一行显示 `fiberPhase: active` **不能**作为依据 —— 端点缺席时它同样是 active，
 只是每次调用都会失败。
@@ -81,8 +81,8 @@ GUI 里那一行显示 `fiberPhase: active` **不能**作为依据 —— 端点
 | 事件 | 到 9222 的连接 | 弹窗 |
 |---|---|---|
 | 插件启用后 2 分钟，未调用任何工具 | 无 | 无 |
-| 第 1 次 `mcp__cdp__list_extensions` | 建立，`ESTABLISHED` | **弹，点一次「允许」** |
-| 第 2 次 `mcp__cdp__list_pages` | 复用同一 socket | 无 |
+| 第 1 次 `mcp__chrome-devtools-mcp__list_extensions` | 建立，`ESTABLISHED` | **弹，点一次「允许」** |
+| 第 2 次 `mcp__chrome-devtools-mcp__list_pages` | 复用同一 socket | 无 |
 
 也就是说：**一次点击 = 一条 CDP 连接的生命周期**，弹窗落在这条连接的第一笔请求上，
 之后同一条连接上的所有调用都不再问。需要重新点的情况只有：关掉插件再打开（MCP 子进程
@@ -129,7 +129,7 @@ node tools\mcp-probe.mjs node D:\DSH\dsh-cdp\connect.mjs --no-usage-statistics -
 - MV3 的 Service Worker 睡着时**不在 `list_pages` 里**，要先用页面里的操作把它唤醒。
 - 只有 Edge 里勾上那个开关时可用；关掉开关后 `connect.mjs` 会以 exit 1 报「DevToolsActivePort 是旧的」。
 - **不要给 `chrome-devtools-mcp` 加 `--slim`**：它会把扩展类工具整个砍掉，这一行就没意义了。
-- 上下文成本：打开这一行后工具目录 41 → 77 个，多出的 36 个（33 个 `mcp__cdp__*` + 3 个通用
+- 上下文成本：打开这一行后工具目录 41 → 77 个，多出的 36 个（33 个 `mcp__chrome-devtools-mcp__*` + 3 个通用
   MCP resource 工具）schema 合计约 26 KB，每次请求都要带。嫌重就关掉它。
 
 ## 测试

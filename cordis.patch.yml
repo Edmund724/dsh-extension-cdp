@@ -9,7 +9,8 @@
       name: '@deepseek-ai/dsh-mcp-client'
       config:
         transport: stdio
-        serverName: cdp
+        # 与 DSH 官方 browser-use bundle 同名：工具前缀统一成 mcp__chrome-devtools-mcp__*。
+        serverName: chrome-devtools-mcp
         command: !!js process.execPath
         args:
           - 'D:\DSH\dsh-cdp\connect.mjs'

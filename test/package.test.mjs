@@ -139,7 +139,8 @@ test('cordis.patch.yml: 解析出的行与 config 正确', () => {
   assert.equal(row.id, 'dsh-cdp');
   assert.equal(row.name, '@deepseek-ai/dsh-mcp-client');
   assert.equal(row.config.transport, 'stdio');
-  assert.equal(row.config.serverName, 'cdp');
+  // 与 DSH 官方 browser-use bundle 的 serverName 一致：工具名统一成 mcp__chrome-devtools-mcp__*。
+  assert.equal(row.config.serverName, 'chrome-devtools-mcp');
   assert.deepEqual(row.config.command, { __jsExpr: 'process.execPath' });
   assert.equal(row.config.failOnStartupError, false);
   assert.equal(row.config.reconnect.maxAttempts, 1000);
