@@ -36,12 +36,33 @@
 | `DSH_CDP_HOST` | `127.0.0.1` | DevTools 主机 |
 | `DSH_CDP_MCP_ENTRY` | 自动查找 | 直接指定 chrome-devtools-mcp 入口文件 |
 | `DSH_CDP_MCP_SEARCH_DIRS` | 空 | 额外搜索目录，用 `path.delimiter`（Windows 下 `;`）分隔 |
-| `DSH_CDP_PROBE_TIMEOUT_MS` | `5000` | TCP / WebSocket 校验超时 |
+| `DSH_CDP_PROBE_TIMEOUT_MS` | `5000` | TCP 探活超时 |
 | `DSH_CDP_BLOCKED_TOOLS` | `trigger_extension_action` | 屏蔽的工具名，逗号分隔；空字符串 = 不过滤 |
 
 入口文件不写死版本路径：从 `chrome-devtools-mcp` 的 `package.json` 里 `bin['chrome-devtools-mcp']` 推导。
-`ws` 包也只在运行时用 `createRequire(<入口>).resolve('ws')` 动态解析，**不是依赖**；
-解析不到就降级为「只做 TCP 校验」并继续启动。
+
+包装脚本**只做 TCP 探活，不自己建 CDP 连接**（原因见下一节），真正那条连接由
+`chrome-devtools-mcp` 建立，全程只此一条。
+
+## 每次打开插件都要点一次「允许」是正常的
+
+日常 profile 走的是 Chromium 的 approval 模式
+（`RemoteDebuggingServerMode::kWithApprovalOnly`，见
+`chrome/browser/devtools/remote_debugging_server.cc`）：只要 `edge://inspect` 的开关是开的，
+服务器就起在 9222 并写 `DevToolsActivePort`，但**每一条新的 WebSocket 连接都会弹一次
+「是否允许远程调试？」的模态框**，用户手点「允许」之后这条连接才握手成功。Chromium 没有
+「记住」选项（社区 issue 一直在挂），也没有配置项可以跳过。
+
+所以本插件刻意把连接数压到最低：
+
+- 包装脚本只探端口，不多连一次；
+- 一次激活只产生一条连接，这条连接一直用到你关掉这一行为止；
+- 端点缺席时（开关还没打开）包装脚本在连之前就退出，不会弹窗，靠 `reconnect` 反复重试，
+  等你打开开关它才建连接、才需要你点一次。
+
+也就是说：**每次在 DSH 里打开 `dsh-cdp` → 点一次「允许」；关掉再打开 → 再点一次；
+Edge 重启后 → 再点一次。** 其余时间不会再弹。
+
 
 ## 为什么默认屏蔽 `trigger_extension_action`
 

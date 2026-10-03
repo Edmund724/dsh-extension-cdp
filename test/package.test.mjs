@@ -200,3 +200,14 @@ test('package.json 与 patch 里不写死 chrome-devtools-mcp 版本路径', () 
   const text = readRepo('cordis.patch.yml');
   assert.equal(/build\/src\/bin/.test(text), false, 'entry 路径必须从 bin 推导，不能写进 patch');
 });
+
+test('connect.mjs 不自己建 CDP 连接（approval 模式下多连一次就多弹一次窗）', () => {
+  const text = readRepo('connect.mjs');
+  // 日常 profile 走 RemoteDebuggingServerMode::kWithApprovalOnly：每一条新的 WebSocket
+  // 连接都会让 Edge 弹一次"是否允许远程调试？"。校验必须止步于 TCP 探活；真正那条连接
+  // 由 chrome-devtools-mcp 建立。有人再加回预检连接时，这里要立刻变红。
+  for (const forbidden of ["resolve('ws')", 'new WebSocket(', 'Browser.getVersion', 'Upgrade: websocket']) {
+    assert.equal(text.includes(forbidden), false, `connect.mjs 不该出现 ${forbidden}`);
+  }
+});
+

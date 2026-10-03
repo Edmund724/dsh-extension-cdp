@@ -9,12 +9,15 @@
 // 3. chrome-devtools-mcp 不校验端点（死端点上 initialize 也会"成功"），只有 tools/call
 //    才报 ECONNREFUSED，所以校验只能前置到这里；
 // 4. trigger_extension_action 在 attach 模式下会把 Edge 整个打崩，默认屏蔽。
+//
+// 只准探端口，不准自己建 CDP 连接：日常 profile 走的是 Chromium 的 approval 模式
+// （RemoteDebuggingServerMode::kWithApprovalOnly），**每一条新的 WebSocket 连接都会让
+// Edge 弹一次"是否允许远程调试？"要用户手点**。这里多连一次，用户就要多点一次，
+// 所以校验止步于 TCP，真正那条连接留给 chrome-devtools-mcp 唯一的一次。
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { createRequire } from 'node:module';
-import { pathToFileURL } from 'node:url';
 
 import {
   checkTcp,
@@ -66,64 +69,6 @@ function profileSearchDirs(portFile) {
     // 读不到就算了，后面还有别的候选目录
   }
   return dirs;
-}
-
-// ws 只在运行时动态解析：从 chrome-devtools-mcp 的 bin 入口出发找它自己装的 ws。
-// 解析不到就降级（只做 TCP 校验），绝不写进 dependencies。
-async function loadWebSocket(entry) {
-  const require = createRequire(entry);
-  const wsPath = require.resolve('ws');
-  const mod = await import(pathToFileURL(wsPath).href);
-  return mod?.default ?? mod?.WebSocket ?? mod;
-}
-
-// 手写 WebSocket 升级握手在这个 server 上无响应，必须用 ws 包发 Browser.getVersion。
-function probeBrowser({ WebSocket, wsUrl, timeoutMs }) {
-  return new Promise((resolve) => {
-    let settled = false;
-    let socket;
-    let timer;
-    const done = (result) => {
-      if (settled) return;
-      settled = true;
-      if (timer) clearTimeout(timer);
-      try {
-        socket?.close();
-      } catch {
-        // 已经关了
-      }
-      resolve(result);
-    };
-
-    timer = setTimeout(() => done({ ok: false, error: `Browser.getVersion 超时（${timeoutMs}ms）` }), timeoutMs);
-    try {
-      socket = new WebSocket(wsUrl);
-    } catch (err) {
-      done({ ok: false, error: err?.message ?? String(err) });
-      return;
-    }
-    socket.on('open', () => {
-      try {
-        socket.send(JSON.stringify({ id: 1, method: 'Browser.getVersion' }));
-      } catch (err) {
-        done({ ok: false, error: err?.message ?? String(err) });
-      }
-    });
-    socket.on('message', (data) => {
-      let msg;
-      try {
-        msg = JSON.parse(String(data));
-      } catch {
-        return;
-      }
-      if (msg && msg.id === 1) {
-        if (msg.result) done({ ok: true, product: msg.result.product });
-        else done({ ok: false, error: msg.error?.message ?? 'Browser.getVersion 返回了错误' });
-      }
-    });
-    socket.on('error', (err) => done({ ok: false, error: err?.message ?? String(err) }));
-    socket.on('close', () => done({ ok: false, error: 'WebSocket 在收到 Browser.getVersion 响应前就关闭了' }));
-  });
 }
 
 function startProxy({ entry, wsUrl, blocked }) {
@@ -204,23 +149,6 @@ async function main() {
   if (found.error) die(found.error);
   const entry = found.entry;
   log(`chrome-devtools-mcp 入口：${entry}`);
-
-  let WebSocket = null;
-  try {
-    WebSocket = await loadWebSocket(entry);
-  } catch (err) {
-    log(`解析不到 ws 包（${err?.message ?? err}），跳过 WebSocket 校验，只保留 TCP 校验继续启动。`);
-  }
-  if (WebSocket) {
-    const probe = await probeBrowser({ WebSocket, wsUrl, timeoutMs: cfg.probeTimeoutMs });
-    if (!probe.ok) {
-      die(
-        `连不上 DevTools WebSocket ${wsUrl}：${probe.error}\n` +
-          '去 Edge 的 edge://inspect 重新打开 "Allow remote debugging for this browser instance"，然后重试。',
-      );
-    }
-    log(`已确认浏览器：${probe.product}`);
-  }
 
   startProxy({ entry, wsUrl, blocked: cfg.blocked });
 }
