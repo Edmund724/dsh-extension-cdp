@@ -48,6 +48,24 @@ macOS `~/Library/Application Support/`、Linux `~/.config/`）。逐项依据与
 端点缺席不会让激活失败（`failOnStartupError: false` + `reconnect`），所以可以先开这一行，
 之后再去浏览器里翻开关，它会自己连上。
 
+## 落盘白名单：在插件页那一行的「配置」里填
+
+`take_screenshot` 的 `filePath`（以及 `upload_file`、装扩展、trace / heapsnapshot 导出）受上游 ≥ 1.6.0 的
+白名单限制，默认只有系统临时目录能写。填法：**侧栏 插件 → `dsh-extension-cdp` → `@deepseek-ai/dsh-mcp-client`
+那一行 → 「配置」**，一行一个目录；目录必须已存在（上游对每个根做 `realpath`，不存在的会让整次调用失败），
+保存后那一行热重载、白名单当场生效。bundle 里另一行 `dsh-extension-cdp-ui` 只用来挂浏览器半侧，不用管它。
+
+这一页写的就是那一行的 `env.DSH_CDP_WORKSPACES`（`connect.mjs` 唯一读的位置），所以两种写法同一个值：
+
+- **只想换目录**：改文本框再保存。
+- **只想清空白名单**（不再额外允许任何目录）：把文本框清空再保存。
+- **「清除覆盖」**：把这一行在 profile 层交还给 bundle 默认 —— 它删的是**整段**固定（profile 里这一行
+  可能还有别的字段），比上一条动作大。写进去的是完整 config，所以 profile 层会固定这一行的普通字面量
+  字段，值里的 `!!js` 表达式原样保留（本机路径不会写死）。
+
+CLI / headless 组合里没有 web 服务，这一页不会出现，那边继续用 `DSH_CDP_WORKSPACES`。
+依据与逐条核对见[落盘位置](docs/operations.md#落盘位置dsh_cdp_workspaces-与---workspace)。
+
 ## 默认工具面
 
 直出 5 个（`list_extensions`、`reload_extension`、`list_pages`、`select_page`、`evaluate_script`），
@@ -73,10 +91,8 @@ macOS `~/Library/Application Support/`、Linux `~/.config/`）。逐项依据与
 - 升级 `chrome-devtools-mcp` 前先跑一次 `node tools\check-upgrade.mjs --version <候选版本>`：
   上游 main 已加入 `--categoryExtensions` + `--wsEndpoint` 的互斥检查，下一版可能让这一行启动即失败。
 - **不要给 `chrome-devtools-mcp` 加 `--slim`**：它会把扩展类工具整个砍掉。
-- **`take_screenshot` 的 `filePath` 默认只能写临时目录**（上游 ≥ 1.6.0 的落盘白名单）；要写别处最省事的是
-  **插件页 → `dsh-extension-cdp` → MCP 那一行 → 「配置」**里一行一个目录（保存后那一行立刻重启，当场生效，
-  「清除覆盖」交还给默认值）；也可以在 profile 里给 `DSH_CDP_WORKSPACES`，
-  见[落盘位置](docs/operations.md#落盘位置dsh_cdp_workspaces-与---workspace)。
+- **`take_screenshot` 的 `filePath` 默认只能写临时目录**（上游 ≥ 1.6.0 的落盘白名单）：
+  在插件页那一行的「配置」里填，见[落盘白名单](#落盘白名单在插件页那一行的配置里填)。
 
 完整清单（`sw-N` 句柄、MV3 SW 睡眠、上下文成本等）见[已知限制](docs/operations.md#已知限制)。
 
