@@ -22,9 +22,10 @@
           - '--no-usage-statistics'
           - '--categoryExtensions'
           # No --workspace here on purpose: it is a per-machine path. Give the row a
-          # directory either by adding ['--workspace', '<dir>'] to this args list, or
-          # via the forwarded DSH_CDP_WORKSPACES env below (connect.mjs turns each
-          # entry into one --workspace flag; repeatable, path.delimiter-separated).
+          # directory by adding ['--workspace', '<dir>'] to this args list, or via the
+          # forwarded DSH_CDP_WORKSPACES env below (connect.mjs turns each entry into
+          # one --workspace flag; repeatable, path.delimiter-separated) -- and the
+          # easiest way is the GUI: Plugins -> this row -> "配置" writes that env.
           # Why it matters: chrome-devtools-mcp >= 1.6 restricts every file-writing
           # tool (take_screenshot / upload_file / install_extension / trace export) to
           # the MCP client's roots + these workspace dirs + the OS temp dir. DSH's MCP
@@ -51,7 +52,16 @@
           # Same treatment for the workspace list: the MCP client's env scrub drops
           # every DSH_* name (including this one), so forward it explicitly. Empty
           # string = no extra workspace root (temp dir remains the only one).
+          # The GUI configuration page writes this exact key (see the row below).
           DSH_CDP_WORKSPACES: !!js process.env.DSH_CDP_WORKSPACES || ''
         reconnect:
           maxAttempts: 1000
           maxDelayMs: 30000
+    # Client 半侧（插件页里那个"配置"页）必须挂在一个模块名等于包名的 Loader 行上：
+    # dsh-client-modules 只认这种行。它把配置页注册到 plugins.row.config 的
+    # `dsh-extension-cdp#dsh-extension-cdp`（上面 MCP 那一行的 id），所以
+    # 侧栏 插件 → dsh-extension-cdp → MCP 那一行 会多出一个"配置"控件，
+    # 页面读写走本包 index.js 的 /api/dsh-extension-cdp/workspaces/*。
+    # 这一行本身没有 config：白名单写在上面那一行的 env 里（connect.mjs 只读那里）。
+    - id: dsh-extension-cdp-ui
+      name: dsh-extension-cdp

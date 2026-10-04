@@ -178,6 +178,49 @@ test('cordis.patch.yml: 解析出的行与 config 正确', () => {
   );
 });
 
+test('UI 配置页的接线：manifest / patch 行 / slot key / 桥路由', () => {
+  const doc = parseYaml(readRepo('cordis.patch.yml'));
+  const rows = (Array.isArray(doc) ? doc[0] : doc).insert;
+  // client 半侧只能挂在「模块名 == 包名」的 Loader 行上（dsh-client-modules 的约定），
+  // 少了这一行，插件页里根本不会出现"配置"控件 —— 而它看起来只是"没生效"。
+  const uiRow = rows.find((row) => row.id === 'dsh-extension-cdp-ui');
+  assert.ok(uiRow, 'patch 里要有承载 Client 半侧的那一行');
+  assert.equal(uiRow.name, pkg.name, '承载行必须叫包名，否则浏览器半侧不挂载');
+  assert.equal(pkg.dsh.client.platform, 'web');
+  assert.equal(pkg.main, './index.js');
+  assert.equal(pkg.exports['.'], './index.js');
+  assert.equal(pkg.exports['./client'], './client.js');
+
+  // 配置页注册在 <包名>#<行 id> 上，行 id 必须是 MCP 那一行：控件才会长在真正被写的那一行上。
+  const mcpRow = rows.find((row) => row.name === '@deepseek-ai/dsh-mcp-client');
+  const client = readRepo('client.js');
+  const slotKey = /key:\s*'([^']+)'/.exec(client)?.[1];
+  assert.equal(slotKey, `${pkg.name}#${mcpRow.id}`, 'slot key 必须是 <包名>#<MCP 行 id>');
+
+  // 两端写死的常量必须一致：路由前缀、env 名、被写的行 id。
+  const host = readRepo('index.js');
+  assert.match(host, /export function apply\(ctx\)/);
+  const hostPrefix = /BRIDGE_PREFIX = '([^']+)'/.exec(host)?.[1];
+  const clientPrefix = /BRIDGE = '([^']+)'/.exec(client)?.[1];
+  assert.equal(hostPrefix, clientPrefix, 'index.js 与 client.js 的桥路由前缀必须一致');
+  assert.match(host, /ENV_KEY = 'DSH_CDP_WORKSPACES'/);
+  assert.match(host, new RegExp(`MCP_ROW_ID = '${mcpRow.id}'`));
+  // 页面文案不许只看桥返回的 code 就瞎猜：reason 与 code 都要有中英词条。
+  for (const locale of ['zh', 'en']) {
+    assert.ok(client.includes(`${locale}: {`), `client.js 缺 ${locale} 词条`);
+  }
+
+  // 浏览器侧 apply 抛错 = 那一行 state 直接变 failed，而 Web 启动审计见到任何非 active 的
+  // 条目就停在 "Failed to load plugins"，整个页面打不开（实测就是这么挂的）。locale 可能比
+  // 本行晚就绪，所以注册文案必须放在 ctx.inject(['locale'], ...) 里等它，不能在 apply 顶层
+  // 直接访问 ctx.locale。
+  assert.match(client, /ctx\.inject\(\['locale'\]/, 'client.js 必须用 ctx.inject 等 locale 服务');
+  assert.ok(
+    client.slice(0, client.indexOf('ctx.locale.register')).includes("ctx.inject(['locale']"),
+    'ctx.locale.register 必须发生在 ctx.inject([\'locale\']) 的回调里',
+  );
+});
+
 test('files: 每条都能在仓库里匹配到东西', () => {
   for (const pattern of pkg.files) {
     const re = globToRegExp(pattern);
@@ -202,6 +245,9 @@ test('exports: 每个子路径都被 files 覆盖', () => {
 test('仓库必需文件齐备', () => {
   for (const rel of [
     'connect.mjs',
+    'index.js',
+    'client.js',
+    'lib/workspaces.mjs',
     'lib/endpoint.mjs',
     'lib/mcp-entry.mjs',
     'lib/browser-paths.mjs',
@@ -227,6 +273,7 @@ test('仓库必需文件齐备', () => {
     'test/tool-surface.test.mjs',
     'test/spawn-shim.test.mjs',
     'test/args.test.mjs',
+    'test/workspaces.test.mjs',
     'tools/check-upgrade.mjs',
     'test/package.test.mjs',
   ]) {

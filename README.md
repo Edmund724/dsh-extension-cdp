@@ -73,8 +73,10 @@ macOS `~/Library/Application Support/`、Linux `~/.config/`）。逐项依据与
 - 升级 `chrome-devtools-mcp` 前先跑一次 `node tools\check-upgrade.mjs --version <候选版本>`：
   上游 main 已加入 `--categoryExtensions` + `--wsEndpoint` 的互斥检查，下一版可能让这一行启动即失败。
 - **不要给 `chrome-devtools-mcp` 加 `--slim`**：它会把扩展类工具整个砍掉。
-- **`take_screenshot` 的 `filePath` 默认只能写临时目录**（上游 ≥ 1.6.0 的落盘白名单）；要写别处就给
-  `DSH_CDP_WORKSPACES`，见[落盘位置](docs/operations.md#落盘位置dsh_cdp_workspaces-与---workspace)。
+- **`take_screenshot` 的 `filePath` 默认只能写临时目录**（上游 ≥ 1.6.0 的落盘白名单）；要写别处最省事的是
+  **插件页 → `dsh-extension-cdp` → MCP 那一行 → 「配置」**里一行一个目录（保存后那一行立刻重启，当场生效，
+  「清除覆盖」交还给默认值）；也可以在 profile 里给 `DSH_CDP_WORKSPACES`，
+  见[落盘位置](docs/operations.md#落盘位置dsh_cdp_workspaces-与---workspace)。
 
 完整清单（`sw-N` 句柄、MV3 SW 睡眠、上下文成本等）见[已知限制](docs/operations.md#已知限制)。
 

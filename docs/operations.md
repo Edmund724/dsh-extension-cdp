@@ -11,7 +11,7 @@
 | `DSH_CDP_HOST` | `127.0.0.1` | DevTools 主机 |
 | `DSH_CDP_MCP_ENTRY` | 自动查找 | 直接指定 chrome-devtools-mcp 入口文件 |
 | `DSH_CDP_MCP_SEARCH_DIRS` | 空 | 额外搜索目录，用 `path.delimiter`（Windows 下 `;`）分隔 |
-| `DSH_CDP_WORKSPACES` | 空 | 落盘白名单目录（见下节），用 `path.delimiter` 分隔；每个目录翻译成一条 `--workspace` |
+| `DSH_CDP_WORKSPACES` | 空 | 落盘白名单目录（见下节），用 `path.delimiter` 分隔；每个目录翻译成一条 `--workspace`；GUI 上那一行的「配置」页写的就是它 |
 | `DSH_CDP_PROBE_TIMEOUT_MS` | `5000` | TCP 探活超时 |
 | `DSH_CDP_APPROVAL_HINT_MS` | `10000` | 首次工具调用挂起多久后给出「可能正在等允许弹窗」的 stderr 诊断；`0` = 关掉 |
 | `DSH_CDP_BLOCKED_TOOLS` | `trigger_extension_action` | 屏蔽的工具名，逗号分隔；空字符串 = 不过滤 |
@@ -38,14 +38,23 @@ DSH 的 MCP 客户端**不协商 roots**（`@deepseek-ai/dsh-mcp-client` 初始�
 Access denied: path C:\Users\me\Desktop\shot.png ... is not within any of the configured workspace roots.
 ```
 
-给目录有两种等价写法，目录**必须已存在**（上游对每个 root 做 `realpath`，解析不到的会被跳过）：
+给目录有三种写法，目录**必须已存在**（上游对每个 root 做 `realpath`，解析不到的会被跳过）：
 
-1. 环境变量 `DSH_CDP_WORKSPACES`（`path.delimiter` 分隔，每个翻译成一条 `--workspace`）；
-2. 直接给那一行的 args 加 `['--workspace', '<目录>']`（可重复）。
+1. **GUI（最省事，不用碰 shell）**：插件页 → `dsh-extension-cdp` → `@deepseek-ai/dsh-mcp-client` 那一行 → 「配置」，
+   一行一个目录，点「保存」；那一行会立刻重启，白名单当场生效。这一页写的就是下面第 2 条的
+   `DSH_CDP_WORKSPACES`（写进 profile patch 里那一行的 `env`），所以两种写法是同一个值、同一条生效路径；
+   同一页的「清除覆盖」把这一行交还给 bundle 默认值。配置页只在 Host 侧同时有 `webServer` 与 `configEditor`
+   的组合（GUI / desktop）里出现，CLI / headless 下继续用环境变量。
+2. 环境变量 `DSH_CDP_WORKSPACES`（`path.delimiter` 分隔，每个翻译成一条 `--workspace`）；
+3. 直接给那一行的 args 加 `['--workspace', '<目录>']`（可重复）。
 
 ⚠️ 这个环境变量得**显式转发**才能到 `connect.mjs`：mcp-client 会把子进程环境里所有 `DSH_*` 名字剥掉，
 所以 bundle 的 [cordis.patch.yml](../cordis.patch.yml) 里有一条 `DSH_CDP_WORKSPACES: !!js process.env.DSH_CDP_WORKSPACES || ''`。
 用别的 `DSH_CDP_*` 变量时同理 —— 只设在自己 shell 里是到不了的。
+
+⚠️ 第 1 条的代价：`ctx.configEditor.edit()` 写的是那一行的**完整** config（框架要求），所以 profile patch 里
+会固定住那一行的普通字面量字段；值里的 `!!js` 表达式（`command`、`args[0]`、`DSH_CDP_MCP_SEARCH_DIRS`）原样保留，
+本机路径不会写死。「清除覆盖」就是撤销这一层固定。
 
 不建议用 `--allow-unrestricted-paths` 代替：它只在「客户端没协商 roots」时才是无限制（当前刚好成立），
 DSH 哪天实现 roots 就会静默失效；上游也已把它标成 deprecated，指向 `--workspace=/`（而 1.10.1 上
