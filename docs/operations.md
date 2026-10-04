@@ -11,6 +11,7 @@
 | `DSH_CDP_HOST` | `127.0.0.1` | DevTools 主机 |
 | `DSH_CDP_MCP_ENTRY` | 自动查找 | 直接指定 chrome-devtools-mcp 入口文件 |
 | `DSH_CDP_MCP_SEARCH_DIRS` | 空 | 额外搜索目录，用 `path.delimiter`（Windows 下 `;`）分隔 |
+| `DSH_CDP_WORKSPACES` | 空 | 落盘白名单目录（见下节），用 `path.delimiter` 分隔；每个目录翻译成一条 `--workspace` |
 | `DSH_CDP_PROBE_TIMEOUT_MS` | `5000` | TCP 探活超时 |
 | `DSH_CDP_APPROVAL_HINT_MS` | `10000` | 首次工具调用挂起多久后给出「可能正在等允许弹窗」的 stderr 诊断；`0` = 关掉 |
 | `DSH_CDP_BLOCKED_TOOLS` | `trigger_extension_action` | 屏蔽的工具名，逗号分隔；空字符串 = 不过滤 |
@@ -20,6 +21,41 @@
 
 包装脚本**只做 TCP 探活，不自己建 CDP 连接**（原因见 [approval 模式](approval-mode.md)），真正那条连接由
 `chrome-devtools-mcp` 建立，全程只此一条。
+
+## 落盘位置：`DSH_CDP_WORKSPACES` 与 `--workspace`
+
+`chrome-devtools-mcp` **≥ 1.6.0** 起把所有吃文件路径的工具（`take_screenshot` 的 `filePath`、`upload_file`、
+`install_extension`、trace / heapsnapshot 导出）限制在白名单里：
+
+```
+MCP 客户端协商的 roots  +  --workspace 目录（可重复）  +  os.tmpdir()
+```
+
+DSH 的 MCP 客户端**不协商 roots**（`@deepseek-ai/dsh-mcp-client` 初始化时给的是 `capabilities: {}`），
+所以默认唯一能落盘的地方就是**系统临时目录**；写别处会被上游拒掉：
+
+```
+Access denied: path C:\Users\me\Desktop\shot.png ... is not within any of the configured workspace roots.
+```
+
+给目录有两种等价写法，目录**必须已存在**（上游对每个 root 做 `realpath`，解析不到的会被跳过）：
+
+1. 环境变量 `DSH_CDP_WORKSPACES`（`path.delimiter` 分隔，每个翻译成一条 `--workspace`）；
+2. 直接给那一行的 args 加 `['--workspace', '<目录>']`（可重复）。
+
+⚠️ 这个环境变量得**显式转发**才能到 `connect.mjs`：mcp-client 会把子进程环境里所有 `DSH_*` 名字剥掉，
+所以 bundle 的 [cordis.patch.yml](../cordis.patch.yml) 里有一条 `DSH_CDP_WORKSPACES: !!js process.env.DSH_CDP_WORKSPACES || ''`。
+用别的 `DSH_CDP_*` 变量时同理 —— 只设在自己 shell 里是到不了的。
+
+不建议用 `--allow-unrestricted-paths` 代替：它只在「客户端没协商 roots」时才是无限制（当前刚好成立），
+DSH 哪天实现 roots 就会静默失效；上游也已把它标成 deprecated，指向 `--workspace=/`（而 1.10.1 上
+`--workspace=/` 因为分隔符拼两次而拒绝一切路径，见上游 issue
+[#2808](https://github.com/ChromeDevTools/chrome-devtools-mcp/issues/2808)）。
+
+依据：限制是上游 PR [#2296](https://github.com/ChromeDevTools/chrome-devtools-mcp/pull/2296) 引入的（随
+1.6.0 发布，**之前那种「客户端不声明 roots 就完全不校验」的行为到此为止**）；`--workspace` 本身是
+1.9.0 才有的（PR [#2605](https://github.com/ChromeDevTools/chrome-devtools-mcp/pull/2605)）。
+`take_screenshot` **不传 `filePath`** 时仍然把图作为 attachment 返回，不受这条限制。
 
 ## 现场核对：`tools/mcp-probe.mjs`
 
@@ -39,6 +75,21 @@ node tools\mcp-probe.mjs --% node connect.mjs --no-usage-statistics --categoryEx
 [approval 模式](approval-mode.md)）。所以拿它做首笔**需要浏览器**的调用时，跑起来之后马上把 Edge 窗口翻出来点
 「允许」；点慢了这次调用会以 `timeout: tools/call` 结束，重跑一次即可。
 不需要连浏览器的调用（工具清单、`$schema`）不受这条影响。
+
+## 落盘白名单的端到端核对：`tools/e2e-workspace.mjs`
+
+上一条改完想知道"到底灵不灵"，不用拿日常那个 Edge 试：
+
+```powershell
+node tools\e2e-workspace.mjs          # 自己起 headless Edge + 独立 user-data-dir
+node tools\e2e-workspace.mjs --keep   # 留下 Edge profile 便于查现场
+```
+
+它不碰日常 profile（headless + `--remote-debugging-port`，默认模式，没有允许弹窗），经 `connect.mjs`
+按 MCP 协议调 `take_screenshot`，断言四件事：白名单目录写得进去、产物是 PNG、白名单之外的路径被拒、
+**不给 `DSH_CDP_WORKSPACES` 时同一个目录被拒**（没有这条对照，前面那条说明不了什么）。
+工件默认 `.e2e/workspace/shot.png`（已 gitignore）；退出码 `0` = 全过，`1` = 有断言失败，`3` = 环境问题
+（找不到 Edge / 找不到 `chrome-devtools-mcp` 入口）。
 
 ## 升级前预检：`tools/check-upgrade.mjs`
 
@@ -91,4 +142,5 @@ node --test "test/*.test.mjs"
 ```
 
 测试不联网、不启动浏览器、不碰真实 profile（`checkTcp` 只连本地临时 `net.createServer`，
-入口查找用 `os.tmpdir()` 下的临时目录）。
+入口查找用 `os.tmpdir()` 下的临时目录）。唯一会启动浏览器的是上面那个可选 e2e
+`tools/e2e-workspace.mjs`，它有自己的一次性 profile，不进默认套件。

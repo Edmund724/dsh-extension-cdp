@@ -21,13 +21,17 @@
           - !!js process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('dsh-extension-cdp/connect.mjs')
           - '--no-usage-statistics'
           - '--categoryExtensions'
-          # No --workspace here on purpose. It only gates tools that take a
-          # filesystem path (install_extension, upload_file, trace/snapshot output
-          # paths); reload, list and evaluate do not need it -- with the flag
-          # absent, reload_extension still succeeds. Shipping one would have to
-          # name one machine's build folder, so add your own if you want to
-          # install extensions: ['--workspace', '<unpacked extension folder>'].
-          # (Default root is the OS temp dir; repeat the flag for more roots.)
+          # No --workspace here on purpose: it is a per-machine path. Give the row a
+          # directory either by adding ['--workspace', '<dir>'] to this args list, or
+          # via the forwarded DSH_CDP_WORKSPACES env below (connect.mjs turns each
+          # entry into one --workspace flag; repeatable, path.delimiter-separated).
+          # Why it matters: chrome-devtools-mcp >= 1.6 restricts every file-writing
+          # tool (take_screenshot / upload_file / install_extension / trace export) to
+          # the MCP client's roots + these workspace dirs + the OS temp dir. DSH's MCP
+          # client never negotiates roots, so without this the OS temp dir is the only
+          # place a screenshot can be saved; somewhere like the Desktop is refused with
+          # "is not within any of the configured workspace roots". The dir must exist
+          # (roots are realpath'd); reload/list/evaluate never needed it.
         # The endpoint is expected to be absent while the Edge switch is off:
         # do not fail activation, let the reconnect policy below keep retrying
         # so flipping the switch later connects on its own.
@@ -44,6 +48,10 @@
         # here; connect.mjs falls back to scanning <dsh home>/profiles/* anyway.
         env:
           DSH_CDP_MCP_SEARCH_DIRS: !!js process.env.DSH_PROFILE_DIR || ''
+          # Same treatment for the workspace list: the MCP client's env scrub drops
+          # every DSH_* name (including this one), so forward it explicitly. Empty
+          # string = no extra workspace root (temp dir remains the only one).
+          DSH_CDP_WORKSPACES: !!js process.env.DSH_CDP_WORKSPACES || ''
         reconnect:
           maxAttempts: 1000
           maxDelayMs: 30000

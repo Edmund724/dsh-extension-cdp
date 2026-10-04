@@ -65,6 +65,13 @@ function readConfig(env = process.env) {
       .split(path.delimiter)
       .map((dir) => dir.trim())
       .filter((dir) => dir !== ''),
+    // chrome-devtools-mcp >= 1.6 把"能写文件的目录"收成白名单：MCP 客户端协商的 roots +
+    // --workspace 目录 + os.tmpdir()。DSH 的 MCP 客户端不协商 roots（capabilities 是空的），
+    // 所以除了临时目录，其余落盘位置只能靠这里显式给。
+    workspaces: String(env.DSH_CDP_WORKSPACES ?? '')
+      .split(path.delimiter)
+      .map((dir) => dir.trim())
+      .filter((dir) => dir !== ''),
   };
 }
 
@@ -83,8 +90,8 @@ function profileSearchDirs(portFile) {
   return dirs;
 }
 
-function startProxy({ entry, wsUrl, blocked, approvalHintMs, browserName, surface: surfaceConfig }) {
-  const args = buildServerArgs({ entry, wsUrl, extraArgs: process.argv.slice(2) });
+function startProxy({ entry, wsUrl, blocked, approvalHintMs, browserName, surface: surfaceConfig, workspaces }) {
+  const args = buildServerArgs({ entry, wsUrl, workspaces, extraArgs: process.argv.slice(2) });
   log(`启动 chrome-devtools-mcp：${process.execPath} ${args.join(' ')}`);
 
   const child = spawn(process.execPath, args, { stdio: ['pipe', 'pipe', 'pipe'] });
@@ -229,6 +236,7 @@ async function main() {
     approvalHintMs: cfg.approvalHintMs,
     browserName: cfg.browser?.name,
     surface: cfg.surface,
+    workspaces: cfg.workspaces,
   });
 }
 

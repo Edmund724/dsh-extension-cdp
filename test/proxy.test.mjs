@@ -7,7 +7,9 @@
 // 2. 屏蔽工具没从 tools/list 里删掉 / 删错别的工具；
 // 3. 对屏蔽工具的 tools/call 被转发给了子进程（而不是本地回 -32601）——那正是会把 Edge 打崩的调用；
 // 4. 正常工具被误伤（没转发 / 响应没透传）；
-// 5. 子进程的 --wsEndpoint 没拼出来（端点发现与拼装串不起来）；
+// 5. 子进程的 --wsEndpoint 没拼出来（端点发现与拼装串不起来）；同理，DSH_CDP_WORKSPACES
+//    没被翻译成 --workspace（白名单空的 = 只有临时目录能落盘），或者空串也硬塞一条
+//    `--workspace ''`（上游会把空路径 resolve 成 cwd，等于白放开当前目录）；
 // 6. 首次 forwarded 的 tools/call 挂住时不给"正在等 Edge 允许"的诊断；反过来，
 //    正常快调用、被屏蔽工具的本地回执、DSH_CDP_APPROVAL_HINT_MS=0 时都不该有这条诊断；
 // 7. 诊断跑进 stdout（破坏"stdout 只有 MCP 帧"的契约）或被吞掉/改动帧。
@@ -212,6 +214,48 @@ test('connect.mjs: 只探端口就转发，且屏蔽工具不外泄', async () =
     assert.ok(box.bytes.length === 0, `包装脚本不该向调试端口发送任何字节，收到：${JSON.stringify(box.bytes.map(String))}`);
   } finally {
     client.child.kill();
+    await box.cleanup();
+  }
+});
+
+// 读子进程 argv 里所有 --workspace 的值（顺序保留）。
+function workspaceDirs(argv) {
+  return argv.reduce((dirs, arg, index) => {
+    if (arg === '--workspace') dirs.push(argv[index + 1]);
+    return dirs;
+  }, []);
+}
+
+test('connect.mjs: DSH_CDP_WORKSPACES 逐条翻译成 --workspace，空串一条都不加', async () => {
+  const box = await sandbox();
+  const readArgv = () =>
+    waitFor(
+      () => {
+        const raw = fs.existsSync(box.argvFile) ? fs.readFileSync(box.argvFile, 'utf8') : '';
+        return raw === '' ? null : JSON.parse(raw);
+      },
+      { timeoutMs: 15000 },
+    );
+
+  try {
+    const client = startConnect(box, { env: { DSH_CDP_WORKSPACES: 'D:/shots;D:/ext/dist' } });
+    await handshake(client);
+    const argv = await readArgv();
+    assert.deepEqual(workspaceDirs(argv), ['D:/shots', 'D:/ext/dist'], `argv=${JSON.stringify(argv)}`);
+    client.child.kill();
+
+    // bundle 的 env 转发在没人设这个变量时给的是空串：那种情况下必须一条都不加
+    // （`--workspace ''` 会被上游 resolve 成 cwd，等于白放开一个目录）。
+    fs.rmSync(box.argvFile, { force: true });
+    const client2 = startConnect(box, { env: { DSH_CDP_WORKSPACES: '' } });
+    try {
+      await handshake(client2);
+      const argv2 = await readArgv();
+      assert.deepEqual(workspaceDirs(argv2), [], `argv=${JSON.stringify(argv2)}`);
+    } finally {
+      client2.child.kill();
+    }
+  } finally {
     await box.cleanup();
   }
 });
