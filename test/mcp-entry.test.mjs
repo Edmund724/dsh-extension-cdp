@@ -6,16 +6,18 @@
 // 5. bin 的相对路径没有按 <dir> 拼成绝对路径（写死版本路径会随版本失效）；
 // 6. findMcpEntry 没把 DSH_CDP_MCP_ENTRY 放在最高优先级；
 // 7. searchDirs 命中时没读到 <dir>/node_modules/chrome-devtools-mcp/package.json；
-// 8. 全都找不到时抛异常而不是返回 { error }。
+// 8. 全都找不到时抛异常而不是返回 { error }；
+// 9. selfDirs（本包自己在 package.json 里钉的依赖）没排在最前，导致被 profile 里另一份顶掉。
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-// 9. MCP 客户端会给子进程做环境清洗（所有 DSH_* 名字都被丢掉），所以真实运行路径上
+import { fileURLToPath } from 'node:url';
+// 10. MCP 客户端会给子进程做环境清洗（所有 DSH_* 名字都被丢掉），所以真实运行路径上
 //    DSH_PROFILE_DIR 永远拿不到 —— 入口发现不能只靠它，否则整行必然退避重试到死；
 //    dshProfileDirs 从 <dsh home>/profiles/<name> 推候选目录，不依赖任何 DSH_* 变量。
-import { resolveEntryFromPackageJson, findMcpEntry, dshProfileDirs } from '../lib/mcp-entry.mjs';
+import { resolveEntryFromPackageJson, findMcpEntry, dshProfileDirs, selfPackageDirs } from '../lib/mcp-entry.mjs';
 
 const BIN = {
   'chrome-devtools-mcp': './build/src/bin/chrome-devtools-mcp.js',
@@ -24,6 +26,16 @@ const BIN = {
 const DIR = path.resolve('fake', 'node_modules', 'chrome-devtools-mcp');
 
 const reader = (pkg) => ({ readFile: () => JSON.stringify(pkg) });
+
+// 依赖链上放一份可用的 chrome-devtools-mcp（<root>/node_modules/chrome-devtools-mcp）。
+function writeFakePackage(root, bin = BIN) {
+  const pkgDir = path.join(root, 'node_modules', 'chrome-devtools-mcp');
+  fs.mkdirSync(path.join(pkgDir, 'build', 'src', 'bin'), { recursive: true });
+  fs.writeFileSync(path.join(pkgDir, 'package.json'), JSON.stringify({ name: 'chrome-devtools-mcp', bin }));
+  return pkgDir;
+}
+
+const entryOf = (pkgDir) => path.join(pkgDir, 'build', 'src', 'bin', 'chrome-devtools-mcp.js');
 
 test('resolveEntryFromPackageJson: 从 bin 对象推导，不写死版本路径', () => {
   const entry = resolveEntryFromPackageJson(DIR, reader({ name: 'chrome-devtools-mcp', bin: BIN }));
@@ -98,34 +110,75 @@ test('findMcpEntry: DSH_CDP_MCP_ENTRY 指向不存在的文件时报错', () => 
 test('findMcpEntry: searchDirs 命中 node_modules 下的包', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-extension-cdp-entry-'));
   try {
-    const pkgDir = path.join(root, 'node_modules', 'chrome-devtools-mcp');
-    fs.mkdirSync(path.join(pkgDir, 'build', 'src', 'bin'), { recursive: true });
-    fs.writeFileSync(
-      path.join(pkgDir, 'package.json'),
-      JSON.stringify({ name: 'chrome-devtools-mcp', bin: BIN }),
-    );
+    const pkgDir = writeFakePackage(root);
     const got = findMcpEntry({
       env: {},
+      selfDirs: [], // 隔离本机自己的依赖树：这条用例只测 searchDirs
       searchDirs: [root],
       execPath: path.join(root, 'ghost-node.exe'),
     });
-    assert.deepEqual(got, { entry: path.join(pkgDir, 'build', 'src', 'bin', 'chrome-devtools-mcp.js') });
+    assert.deepEqual(got, { entry: entryOf(pkgDir) });
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
+test('findMcpEntry: 本包自己钉的依赖（selfDirs）命中', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-extension-cdp-self-'));
+  try {
+    // 模拟包根：插件在 <profile>/node_modules/dsh-extension-cdp 时，包根下面有自己的 node_modules
+    const pluginDir = path.join(root, 'node_modules', 'dsh-extension-cdp');
+    fs.mkdirSync(path.join(pluginDir, 'lib'), { recursive: true });
+    const pkgDir = writeFakePackage(pluginDir);
+    const got = findMcpEntry({
+      env: {},
+      selfDirs: [path.join(pluginDir, 'lib'), pluginDir],
+      searchDirs: [],
+      execPath: 'C:/ghost/node.exe',
+    });
+    assert.deepEqual(got, { entry: entryOf(pkgDir) });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('findMcpEntry: 本包自己的依赖优先于 profile 里那份', () => {
+  const selfRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-extension-cdp-self-prio-'));
+  const profileRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-extension-cdp-profile-prio-'));
+  try {
+    const selfDir = writeFakePackage(selfRoot);
+    writeFakePackage(profileRoot);
+    const got = findMcpEntry({
+      env: {},
+      selfDirs: [selfRoot],
+      searchDirs: [profileRoot],
+      execPath: 'C:/ghost/node.exe',
+    });
+    assert.deepEqual(got, { entry: entryOf(selfDir) }, '本插件测过的版本要赢，profile 里那份只当兜底');
+  } finally {
+    fs.rmSync(selfRoot, { recursive: true, force: true });
+    fs.rmSync(profileRoot, { recursive: true, force: true });
+  }
+});
+
+test('selfPackageDirs: 默认覆盖本包包根（lib/ 的上一层）', () => {
+  const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const dirs = selfPackageDirs();
+  assert.equal(dirs[0], path.join(packageRoot, 'lib'));
+  assert.ok(dirs.includes(packageRoot), 'selfDirs 必须含包根，否则找不到包根/node_modules 里的依赖');
+});
+
 test('findMcpEntry: 从 DSH_PROFILE_DIR 命中', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-extension-cdp-profile-'));
   try {
-    const pkgDir = path.join(root, 'node_modules', 'chrome-devtools-mcp');
-    fs.mkdirSync(pkgDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(pkgDir, 'package.json'),
-      JSON.stringify({ name: 'chrome-devtools-mcp', bin: BIN }),
-    );
-    const got = findMcpEntry({ env: { DSH_PROFILE_DIR: root }, searchDirs: [], execPath: 'C:/ghost/node.exe' });
-    assert.ok(got.entry && got.entry.endsWith(path.join('build', 'src', 'bin', 'chrome-devtools-mcp.js')));
+    const pkgDir = writeFakePackage(root);
+    const got = findMcpEntry({
+      env: { DSH_PROFILE_DIR: root },
+      selfDirs: [],
+      searchDirs: [],
+      execPath: 'C:/ghost/node.exe',
+    });
+    assert.deepEqual(got, { entry: entryOf(pkgDir) });
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -198,18 +251,14 @@ test('findMcpEntry: DSH_* 被清洗掉后靠 profile 目录仍能找到入口', 
   // 真实运行路径：MCP 客户端把 DSH_PROFILE_DIR 洗掉了，只有 os.homedir() 可信。
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-extension-cdp-realhome-'));
   try {
-    const pkgDir = path.join(home, '.dsh', 'profiles', 'desktop', 'node_modules', 'chrome-devtools-mcp');
-    fs.mkdirSync(path.join(pkgDir, 'build', 'src', 'bin'), { recursive: true });
-    fs.writeFileSync(
-      path.join(pkgDir, 'package.json'),
-      JSON.stringify({ name: 'chrome-devtools-mcp', bin: BIN }),
-    );
+    const pkgDir = writeFakePackage(path.join(home, '.dsh', 'profiles', 'desktop'));
     const got = findMcpEntry({
       env: {}, // 注意：没有 DSH_PROFILE_DIR
+      selfDirs: [],
       searchDirs: dshProfileDirs({ home }),
       execPath: 'C:/ghost/node.exe',
     });
-    assert.deepEqual(got, { entry: path.join(pkgDir, 'build', 'src', 'bin', 'chrome-devtools-mcp.js') });
+    assert.deepEqual(got, { entry: entryOf(pkgDir) });
   } finally {
     fs.rmSync(home, { recursive: true, force: true });
   }

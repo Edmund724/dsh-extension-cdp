@@ -4,7 +4,7 @@
 // 3. patch 里行的 id / name / serverName / command 表达式写错（写成字符串 serde 就到不了 DSH）；
 // 4. files 里有哪条在仓库里匹配不到东西（发布后少文件）；
 // 5. exports 暴露的子路径没被 files 覆盖（入口文件发不出去）；
-// 6. 悄悄引入 npm 依赖。
+// 6. 依赖表变了：唯一允许的是钉死版本的 chrome-devtools-mcp（插件自带的 MCP 服务端）。
 // 这里不引 YAML 依赖：手写一个够用的行解析器（只支持本文件用到的子集）。
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -126,7 +126,11 @@ test('package.json: 基本字段与 dsh.bundle.patch', () => {
   assert.equal(pkg.scripts.test, 'node --test "test/*.test.mjs"');
   assert.equal(pkg.dsh.bundle.patch, './cordis.patch.yml');
   assert.ok(fs.existsSync(path.join(root, pkg.dsh.bundle.patch)), 'cordis.patch.yml 必须存在');
-  assert.deepEqual(pkg.dependencies ?? {}, {}, '不允许引入 npm 依赖');
+  // 插件自带 MCP 服务端：DSH 本体与官方 bundle 都不内置它（官方那个 bundle 也是靠同一条 npm
+  // 依赖把它装进 profile）。它没有传递依赖，所以这里只有一条；版本必须精确钉死 —— 上游 1.10.1
+  // 之后随时可能给 --categoryExtensions + --wsEndpoint 加互斥检查，范围号会让升级无声地把这行搞挂。
+  assert.deepEqual(Object.keys(pkg.dependencies ?? {}), ['chrome-devtools-mcp'], '依赖表只允许 chrome-devtools-mcp');
+  assert.match(pkg.dependencies['chrome-devtools-mcp'], /^\d+\.\d+\.\d+$/, '版本必须精确钉死，不能是 ^ / ~ 范围');
   assert.equal(JSON.stringify(pkg).includes('"ws"'), false);
 });
 

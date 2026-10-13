@@ -9,7 +9,7 @@
 | `DSH_CDP_USER_DATA_DIR` | 自动探测（Edge → Chrome） | 浏览器 user data 目录；显式指定时优先级最高 |
 | `DSH_CDP_PORT_FILE` | `<user data dir>\DevToolsActivePort` | 端口文件路径；只设它时不探测目录 |
 | `DSH_CDP_HOST` | `127.0.0.1` | DevTools 主机 |
-| `DSH_CDP_MCP_ENTRY` | 自动查找 | 直接指定 chrome-devtools-mcp 入口文件 |
+| `DSH_CDP_MCP_ENTRY` | 自动查找 | 直接指定 chrome-devtools-mcp 入口文件（优先级最高，覆盖下面整套查找） |
 | `DSH_CDP_MCP_SEARCH_DIRS` | 空 | 额外搜索目录，用 `path.delimiter`（Windows 下 `;`）分隔 |
 | `DSH_CDP_WORKSPACES` | 空 | 落盘白名单目录（见下节），用 `path.delimiter` 分隔；每个目录翻译成一条 `--workspace`；GUI 上那一行的「配置」页写的就是它 |
 | `DSH_CDP_PROBE_TIMEOUT_MS` | `5000` | TCP 探活超时 |
@@ -18,6 +18,18 @@
 | `DSH_CDP_TOOLS` | 5 个扩展调试工具 + `cdp_call` | 直出哪些工具：`all` = 不裁剪，`none` = 只留 `cdp_call`，逗号分隔 = 白名单 |
 
 入口文件不写死版本路径：从 `chrome-devtools-mcp` 的 `package.json` 里 `bin['chrome-devtools-mcp']` 推导。
+查找顺序（`lib/mcp-entry.mjs`）：
+
+1. `DSH_CDP_MCP_ENTRY`；
+2. **本插件自己的依赖**（`package.json` 的 `dependencies` 里钉着 `chrome-devtools-mcp`）：包根的
+   `node_modules`，以及包根落在 `<profile>/node_modules` 里时的那个 `node_modules`；
+3. `DSH_CDP_MCP_SEARCH_DIRS`（bundle 里转发的是 profile 目录）；
+4. `<dsh home>/profiles/*`（`DSH_*` 被清洗掉时的可靠路径）；
+5. 端口文件旁的目录。
+
+第 2 条排在最前是有意的：它是本插件测过的版本，profile 里另有一份（例如官方 browser-use bundle 装的）
+时以它为准。`link:` / 拷贝式安装没有第 2 条 —— pnpm 不给 `link:` 的包解依赖，要在插件目录跑一次
+`pnpm install`。
 
 包装脚本**只做 TCP 探活，不自己建 CDP 连接**（原因见 [approval 模式](approval-mode.md)），真正那条连接由
 `chrome-devtools-mcp` 建立，全程只此一条。
@@ -105,9 +117,12 @@ node tools\e2e-workspace.mjs --keep   # 留下 Edge profile 便于查现场
 「已知限制」里那条升级风险，现在有脚本兜着：
 
 ```powershell
-node tools\check-upgrade.mjs                    # 检查当前已装的那份
+node tools\check-upgrade.mjs                    # 检查当前已装的那份（即插件自己的依赖）
 node tools\check-upgrade.mjs --version 1.11.0   # 检查候选版本
 ```
+
+升级的动作就是改 `package.json` 里 `dependencies['chrome-devtools-mcp']` 那个精确版本号，再在插件目录
+跑一次 `pnpm install`。
 
 它只**读**候选产物：下载到临时目录、解包、读 `EXTENSIONS` 分类有没有 `conflicts`、产物里有没有
 `CONFLICTING_ARGS` 互斥表，然后删掉临时目录。**候选产物绝不执行**。

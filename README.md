@@ -8,7 +8,7 @@
 
 它是一个**配置型 bundle**：`cordis.patch.yml` 插入一行 `@deepseek-ai/dsh-mcp-client`，
 `connect.mjs` 作为包装脚本负责「发现端点 → 校验 → 透明转发」。CDP 与工具全部来自上游
-`chrome-devtools-mcp`（Google 官方），本仓库不含任何 CDP / DevTools 代码。
+`chrome-devtools-mcp`（Google 官方，在本插件的 npm 依赖里钉着版本），本仓库不含任何 CDP / DevTools 代码。
 
 重心是 Chromium 系浏览器的**扩展开发**，所以默认直出的就是那几个扩展调试工具。这只是默认值，不是能力边界
 —— CDP 能做的事这里都能做（唯一例外是默认屏蔽的 `trigger_extension_action`，理由见[工具面](docs/tool-surface.md)）。
@@ -28,9 +28,12 @@ macOS `~/Library/Application Support/`、Linux `~/.config/`）。逐项依据与
 
 ## 前置条件
 
-1. `chrome-devtools-mcp` 已装进 DSH 的 profile（入口从它 `package.json` 的 `bin` 推导，不写死版本路径）。
-2. 浏览器里勾上允许远程调试：Edge 是 `edge://inspect`，Chrome 是 `chrome://inspect#remote-debugging`，
-   勾 **"Allow remote debugging for this browser instance"**。
+浏览器里勾上允许远程调试：Edge 是 `edge://inspect`，Chrome 是 `chrome://inspect#remote-debugging`，
+勾 **"Allow remote debugging for this browser instance"**。
+
+`chrome-devtools-mcp` 不用另装：它是本插件的 npm 依赖，在 `package.json` 里精确钉着版本（入口从它包里的
+`bin` 推导，不写死版本路径）。**只有 `link:` 和直接拷贝这两种装法要补一步** —— pnpm 不给 `link:` 的包解依赖，
+那种装法要在插件目录里跑一次 `pnpm install`（`node_modules/` 已 gitignore，换机后不会跟着仓库走）。
 
 勾选状态跨浏览器重启保留，但**每一条新的 CDP 连接都要你手动点一次「允许」，Chromium 没有「记住」选项**。
 机制、授权寿命、卡住时的表现见 [approval 模式](docs/approval-mode.md)。
@@ -88,8 +91,9 @@ CLI / headless 组合里没有 web 服务，这一页不会出现，那边继续
 ## 四条容易踩的
 
 - 需要重新授权的时机：MCP 子进程重启、DSH 重启、浏览器重启、开关关掉再打开。
-- 升级 `chrome-devtools-mcp` 前先跑一次 `node tools\check-upgrade.mjs --version <候选版本>`：
-  上游 main 已加入 `--categoryExtensions` + `--wsEndpoint` 的互斥检查，下一版可能让这一行启动即失败。
+- 升级 `chrome-devtools-mcp` 就是改 `package.json` 里钉的版本号（改完在插件目录跑一次 `pnpm install`），
+  改之前先跑 `node tools\check-upgrade.mjs --version <候选版本>`：上游 main 已加入 `--categoryExtensions`
+  + `--wsEndpoint` 的互斥检查，下一版可能让这一行启动即失败。
 - **不要给 `chrome-devtools-mcp` 加 `--slim`**：它会把扩展类工具整个砍掉。
 - **`take_screenshot` 的 `filePath` 默认只能写临时目录**（上游 ≥ 1.6.0 的落盘白名单）：
   在插件页那一行的「配置」里填，见[落盘白名单](#落盘白名单在插件页那一行的配置里填)。

@@ -219,8 +219,8 @@ async function main() {
     );
   }
 
-  // 入口候选目录：显式 env > DSH 自己的 profile 目录树（拿不到 DSH_* 时唯一可靠的路）>
-  // 端口文件旁的目录。
+  // 入口候选目录：显式 env > 本包自己的依赖（findMcpEntry 的 selfDirs 默认值，见 package.json
+  // 的 dependencies）> DSH 自己的 profile 目录树（拿不到 DSH_* 时唯一可靠的路）> 端口文件旁的目录。
   const found = findMcpEntry({
     env,
     searchDirs: [...cfg.searchDirs, ...dshProfileDirs({ env }), ...profileSearchDirs(cfg.portFile)],
