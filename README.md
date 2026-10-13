@@ -26,14 +26,52 @@
 browser 级 `Extensions` CDP 域，没有 Edge 专有 API。候选路径按平台给（Windows `%LOCALAPPDATA%`、
 macOS `~/Library/Application Support/`、Linux `~/.config/`）。逐项依据与实测边界见[兼容性](docs/compatibility.md)。
 
+## 安装
+
+两条路都能装，区别只在**要不要本地一份代码**。都走 DSH 官方的 `plugin_manager`、
+`action: install_bundle`（它负责写 profile 的 `package.json`、跑 pnpm、选中 bundle；不要自己手写 profile 的
+`package.json`，也不要在 profile 目录里手跑 pnpm）。这个动作需要 danger-full-access，或对这一次调用单独授权。
+
+**A. 直接从 GitHub 装（一条命令，无本地副本）**
+
+```
+plugin_manager(action: 'install_bundle', target: 'github:Edmund724/dsh-extension-cdp')
+```
+
+pnpm 拉仓库时会把它的依赖一起解出来（`chrome-devtools-mcp` 落进 profile 的 `node_modules`），所以这条路
+**不用再补任何步骤**。代价是拿到的是某个 commit 的快照（pnpm 锁在 profile 的 `pnpm-lock.yaml` 里），
+要改插件代码就走 B。
+
+**B. clone 下来装（要改代码时用）**
+
+```powershell
+git clone https://github.com/Edmund724/dsh-extension-cdp.git D:\src\dsh-extension-cdp
+cd D:\src\dsh-extension-cdp
+pnpm install
+```
+
+`pnpm install` 不能省：DSH 装本地目录用的是 `link:`，而 pnpm **不给 `link:` 的包解依赖** —— 少了这一步
+`connect.mjs` 会因为找不到 `chrome-devtools-mcp` 而无限退避重试（`node_modules/` 已 gitignore，换机后不会跟着
+仓库走，新机器要重跑一次）。PATH 里没有 pnpm 时用 DSH 自带的那份：`load_workspace_dependencies` 给出的
+`node` 与 `pnpm` 绝对路径，命令是 `<node> <pnpm.mjs> install`。
+
+然后把仓库目录装进 profile：
+
+```
+plugin_manager(action: 'install_bundle', target: 'D:\src\dsh-extension-cdp')
+```
+
+本插件不在 dshmarket 的精选列表里，市场页搜不到它，用上面的 `plugin_manager`。两种装法都默认 `enabled: true`；
+之后按[前置条件](#前置条件)在浏览器里打开开关、重启 DSH（启动型 profile 要重启），
+再用[开关与验证](#开关与验证)那条判据确认 `mcp__chrome-devtools-mcp__*` 真的在。
+
 ## 前置条件
 
 浏览器里勾上允许远程调试：Edge 是 `edge://inspect`，Chrome 是 `chrome://inspect#remote-debugging`，
 勾 **"Allow remote debugging for this browser instance"**。
 
 `chrome-devtools-mcp` 不用另装：它是本插件的 npm 依赖，在 `package.json` 里精确钉着版本（入口从它包里的
-`bin` 推导，不写死版本路径）。**只有 `link:` 和直接拷贝这两种装法要补一步** —— pnpm 不给 `link:` 的包解依赖，
-那种装法要在插件目录里跑一次 `pnpm install`（`node_modules/` 已 gitignore，换机后不会跟着仓库走）。
+`bin` 推导，不写死版本路径）—— 装法见[安装](#安装)，`link:` 那种装法要多跑一次 `pnpm install`。
 
 勾选状态跨浏览器重启保留，但**每一条新的 CDP 连接都要你手动点一次「允许」，Chromium 没有「记住」选项**。
 机制、授权寿命、卡住时的表现见 [approval 模式](docs/approval-mode.md)。
